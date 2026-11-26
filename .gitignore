@@ -1,0 +1,45 @@
+# Environnements et dependances
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.vite/
+.vite-temp/
+dist/
+dist-ssr/
+*.tsbuildinfo
+coverage/
+htmlcov/
+.coverage*
+
+# Secrets : conserver uniquement les exemples sans valeurs sensibles
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Fichiers locaux, temporaires et sauvegardes
+logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup.*
+~$*
+.DS_Store
+Thumbs.db
+.idea/
+.claude/
+.vscode/*
+!.vscode/extensions.json
+
+# Etat local de selection du dataset (original et archive conserves)
+backend/data/metadata/active.json
