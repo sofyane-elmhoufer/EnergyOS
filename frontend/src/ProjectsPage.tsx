@@ -1,16 +1,16 @@
-// Suivi des dossiers clients : commercial (contact, acceptation), technicien (installation), administrateur (tout).
+// Suivi des dossiers clients : commercial (contact, acceptation, planification de la visite), administrateur (tout).
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Briefcase, Download, Mail, Phone, Search, Trash2, Wrench } from "lucide-react";
+import { Briefcase, CalendarClock, CheckCircle2, Download, Mail, MapPin, Phone, Search, Trash2 } from "lucide-react";
 import { deleteJSON, getJSON, patchJSON } from "./api";
 import { useAuth } from "./auth";
 import { StatusBadge } from "./MySpace";
-import { day, downloadProjectDevis, type Project } from "./projects";
+import { day, downloadProjectDevis, mapsLink, visitLabel, type Project } from "./projects";
 import { PROJECT_STATUS } from "./roles";
 import { fmt, formatPayback } from "./simulation";
 
+// « Installation planifiée » s'obtient en planifiant la visite (technicien + date) ; « Installé » est confirmé par le technicien.
 const STATUS_RIGHTS: Record<string, string[]> = {
   commercial: ["new", "contacted", "won", "lost"],
-  technicien: ["won", "scheduled", "installed"],
   admin: Object.keys(PROJECT_STATUS),
 };
 const cardClass = "rounded-3xl border border-gray-100 bg-white p-6 shadow-sm";
@@ -21,6 +21,14 @@ function ProjectCard({ project, role, technicians, onChange, onDelete }: {
 }) {
   const [note, setNote] = useState(project.note ?? "");
   const [error, setError] = useState("");
+  const [visit, setVisit] = useState({
+    technician_id: project.technician_id ?? 0,
+    visit_at: project.visit_at ?? "",
+    site_address: project.site_address || project.client_address || "",
+  });
+  const planning = ["won", "scheduled", "installed"].includes(project.status);
+  const visitChanged = visit.technician_id !== (project.technician_id ?? 0) || visit.visit_at !== (project.visit_at ?? "")
+    || visit.site_address !== (project.site_address || project.client_address || "");
   const allowed = STATUS_RIGHTS[role] ?? [];
   const statuses = allowed.includes(project.status) ? allowed : [project.status, ...allowed];
 
@@ -51,30 +59,61 @@ function ProjectCard({ project, role, technicians, onChange, onDelete }: {
         <div><dt className="text-xs text-gray-400">Installation</dt><dd>{s.modules} modules · {fmt(s.investment_total, 0)} {s.currency}</dd><dd className="text-xs text-gray-400">retour {formatPayback(s.payback_months)}</dd></div>
       </dl>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_2fr]">
-        <label className="text-xs text-gray-500">Statut
+      <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_2fr]">
+        <label className="text-xs text-gray-500">Statut commercial
           <select className={`${smallInput} mt-1`} value={project.status} onChange={(e) => save({ status: e.target.value })}>
             {statuses.map((st) => <option key={st} value={st} disabled={!allowed.includes(st)}>{PROJECT_STATUS[st]?.label ?? st}</option>)}
           </select>
         </label>
-        <label className="text-xs text-gray-500">Technicien
-          {role === "technicien"
-            ? <p className="mt-1 py-2 text-sm text-gray-700">{project.technician_name ?? "Non affecté"}</p>
-            : (
-              <select className={`${smallInput} mt-1`} value={project.technician_id ?? 0} onChange={(e) => save({ technician_id: Number(e.target.value) })}>
-                <option value={0}>Non affecté</option>
-                {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
-        </label>
-        <label className="text-xs text-gray-500">Note interne (invisible pour le client)
+        <label className="text-xs text-gray-500">Note interne et consignes pour le technicien (invisible pour le client)
           <div className="mt-1 flex gap-2">
-            <input className={smallInput} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : rappeler mardi, visite le 12/12…" />
+            <input className={smallInput} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex : sonner au portail, tableau électrique au sous-sol…" />
             <button type="button" onClick={() => save({ note })} disabled={note === (project.note ?? "")}
               className="shrink-0 rounded-lg bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-30">OK</button>
           </div>
         </label>
       </div>
+
+      {planning ? (
+        <div className="mt-4 rounded-2xl bg-gray-50 p-4">
+          <p className="mb-3 flex items-center gap-2 text-sm font-semibold"><CalendarClock size={16} className="text-blue-600" />
+            {project.status === "installed" ? "Installation réalisée" : project.status === "scheduled" ? `Visite planifiée : ${visitLabel(project.visit_at)}` : "Planifier la visite d'installation"}</p>
+          {project.status === "installed" ? (
+            <div className="space-y-1 text-sm text-gray-600">
+              <p className="flex items-center gap-2"><CheckCircle2 size={15} className="text-emerald-600" /> Par {project.technician_name ?? "—"}{project.installed_at && `, le ${day(project.installed_at)}`}</p>
+              {project.report && <p className="rounded-xl bg-white p-3"><strong>Compte rendu :</strong> {project.report}</p>}
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr_2fr]">
+                <label className="text-xs text-gray-500">Technicien
+                  <select className={`${smallInput} mt-1`} value={visit.technician_id} onChange={(e) => setVisit({ ...visit, technician_id: Number(e.target.value) })}>
+                    <option value={0}>Choisir…</option>
+                    {technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-gray-500">Date et heure
+                  <input type="datetime-local" className={`${smallInput} mt-1`} value={visit.visit_at} onChange={(e) => setVisit({ ...visit, visit_at: e.target.value })} />
+                </label>
+                <label className="text-xs text-gray-500">Adresse d'intervention
+                  <input className={`${smallInput} mt-1`} maxLength={200} value={visit.site_address} placeholder="N°, rue, quartier, ville"
+                    onChange={(e) => setVisit({ ...visit, site_address: e.target.value })} />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button type="button" disabled={!visitChanged || !visit.technician_id || !visit.visit_at}
+                  onClick={() => save({ technician_id: visit.technician_id, visit_at: visit.visit_at, site_address: visit.site_address.trim() })}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40">
+                  {project.status === "scheduled" ? "Modifier la visite" : "Planifier la visite"}</button>
+                {visit.site_address && <a href={mapsLink(visit.site_address)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600"><MapPin size={12} /> Voir sur la carte</a>}
+                <span className="text-xs text-gray-400">Le technicien voit la visite dans « Mes visites » avec l'adresse, l'horaire, le matériel et vos consignes.</span>
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-gray-400">Passez le dossier en « Accepté » pour planifier la visite d'installation.</p>
+      )}
       <div className="mt-3 flex items-center justify-between gap-3">
         {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : <span />}
         <div className="flex items-center gap-4">
@@ -103,8 +142,8 @@ export default function ProjectsPage() {
 
   const load = useCallback(() => {
     getJSON<Project[]>("/api/projects").then(setProjects).catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur."));
-    if (role !== "technicien") getJSON<{ id: number; name: string }[]>("/api/users/technicians").then(setTechnicians).catch(() => {});
-  }, [role]);
+    getJSON<{ id: number; name: string }[]>("/api/users/technicians").then(setTechnicians).catch(() => {});
+  }, []);
   useEffect(load, [load]);
 
   const counts = useMemo(() => {
@@ -112,7 +151,7 @@ export default function ProjectsPage() {
     projects?.forEach((p) => { c[p.status] = (c[p.status] ?? 0) + 1; });
     return c;
   }, [projects]);
-  const visibleStatuses = role === "technicien" ? ["won", "scheduled", "installed"] : Object.keys(PROJECT_STATUS);
+  const visibleStatuses = Object.keys(PROJECT_STATUS);
   const shown = (projects ?? []).filter((p) => {
     if (filter !== "all" && p.status !== filter) return false;
     const q = query.trim().toLowerCase();
@@ -123,10 +162,8 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-6">
       <p className="flex items-center gap-2 text-sm text-gray-500">
-        {role === "technicien" ? <Wrench size={16} className="text-blue-600" /> : <Briefcase size={16} className="text-blue-600" />}
-        {role === "technicien"
-          ? "Dossiers acceptés par les clients : planifiez puis confirmez chaque installation."
-          : "Chaque simulation enregistrée par un client crée un dossier : contactez le client, puis passez-le en « Accepté » et affectez un technicien."}
+        <Briefcase size={16} className="text-blue-600" />
+        Chaque simulation enregistrée par un client crée un dossier : contactez le client, passez-le en « Accepté », puis planifiez la visite (technicien, date, heure, adresse).
       </p>
 
       <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
@@ -146,7 +183,7 @@ export default function ProjectsPage() {
             <input className="w-full rounded-xl border border-gray-200 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500" placeholder="Rechercher un client, une ville, un devis…"
               value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Rechercher" />
           </div>
-          {role !== "technicien" && <p className="text-xs text-gray-400">Montant des dossiers en cours : <strong className="text-gray-700">{fmt(pipeline, 0)} MAD</strong></p>}
+          <p className="text-xs text-gray-400">Montant des dossiers en cours : <strong className="text-gray-700">{fmt(pipeline, 0)} MAD</strong></p>
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         {projects === null && !error && <p className="text-sm text-gray-400">Chargement…</p>}
@@ -155,7 +192,7 @@ export default function ProjectsPage() {
           {shown.map((p) => (
             <ProjectCard key={p.id} project={p} role={role} technicians={technicians}
               onDelete={(id) => setProjects((list) => (list ?? []).filter((x) => x.id !== id))}
-              onChange={(updated) => setProjects((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)).filter((x) => role !== "technicien" || visibleStatuses.includes(x.status)))} />
+              onChange={(updated) => setProjects((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)))} />
           ))}
         </div>
       </section>

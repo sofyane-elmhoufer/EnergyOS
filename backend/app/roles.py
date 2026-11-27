@@ -37,11 +37,10 @@ PROJECT_STATUSES = {
 }
 
 # Statuts qu'un profil peut attribuer à un dossier.
+# Le commercial planifie la visite (date, heure, adresse, technicien) ; le technicien ne voit que
+# ses visites et confirme seulement l'installation.
 STATUS_RIGHTS = {
-    COMMERCIAL: {"new", "contacted", "won", "lost"},
-    TECHNICIEN: {"scheduled", "installed"},
+    COMMERCIAL: {"new", "contacted", "won", "lost", "scheduled"},
+    TECHNICIEN: {"installed"},
     ADMIN: set(PROJECT_STATUSES),
 }
-
-# Dossiers visibles par le technicien : ceux qui concernent une installation.
-TECHNICIEN_VISIBLE_STATUSES = ("won", "scheduled", "installed")

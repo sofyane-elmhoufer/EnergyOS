@@ -95,6 +95,7 @@ clients = client.get("/api/users/clients", headers=auth(com_t)).json()
 assert len(clients) == 1 and clients[0]["projects"] == 1 and clients[0]["best_yearly_saving"] > 0
 assert client.get("/api/analytics/alerts", headers=auth(com_t)).status_code == 403
 assert clients[0]["last_simulation"]["reference"] == "DEV-20261127-ABC123"
+assert client.patch("/api/auth/me", json={"address": "5 avenue Test, Fès"}, headers=auth(client_t)).json()["address"] == "5 avenue Test, Fès"
 client_id = clients[0]["id"]
 ov = client.get(f"/api/users/{client_id}/overview", headers=auth(com_t)).json()
 assert ov["totals"]["simulations"] == 1 and ov["projects"][0]["reference"] == "DEV-20261127-ABC123" and ov["activity"] == []
@@ -102,11 +103,25 @@ assert client.get(f"/api/users/{tech['id']}/overview", headers=auth(com_t)).stat
 assert client.get(f"/api/users/{client_id}/overview", headers=auth(client_t)).status_code == 403
 print("OK commercial")
 
-# --- Technicien : ne voit que les dossiers à installer, planifie puis installe
-assert client.get("/api/projects", headers=auth(tech_t)).json()[0]["status"] == "won"
+# --- Planification de la visite par le commercial : date, heure, adresse → « Installation planifiée »
+assert client.get("/api/projects", headers=auth(tech_t)).json() == []  # accepté mais pas encore planifié
+assert client.patch(f"/api/projects/{pid}", json={"status": "scheduled"}, headers=auth(com_t)).status_code == 400  # sans date
+r = client.patch(f"/api/projects/{pid}", json={"visit_at": "2026-12-02T09:30", "site_address": "12 rue Exemple, Fès"}, headers=auth(com_t))
+assert r.status_code == 200 and r.json()["status"] == "scheduled" and r.json()["visit_at"] == "2026-12-02T09:30", r.text
+assert client.patch(f"/api/projects/{pid}", json={"visit_at": "02/12/2026"}, headers=auth(com_t)).status_code == 422
+assert client.patch(f"/api/projects/{pid}", json={"report": "x"}, headers=auth(com_t)).status_code == 403
+
+# --- Technicien : uniquement ses visites (adresse, horaire, client), sans montants ; confirme l'installation
+visits = client.get("/api/projects", headers=auth(tech_t)).json()
+assert len(visits) == 1 and visits[0]["site_address"] == "12 rue Exemple, Fès" and visits[0]["client_phone"] == "0600000000"
+assert visits[0]["summary"]["investment_total"] == 0 and visits[0]["summary"]["modules"] > 0
 assert client.patch(f"/api/projects/{pid}", json={"status": "lost"}, headers=auth(tech_t)).status_code == 403
 assert client.patch(f"/api/projects/{pid}", json={"technician_id": 0}, headers=auth(tech_t)).status_code == 403
-assert client.patch(f"/api/projects/{pid}", json={"status": "installed"}, headers=auth(tech_t)).json()["status"] == "installed"
+assert client.patch(f"/api/projects/{pid}", json={"visit_at": "2026-12-03T10:00"}, headers=auth(tech_t)).status_code == 403
+other_tech = user_store.create_user("tech2@test.local", "Autre Technicien", "technicien", PASSWORD)
+assert client.get("/api/projects", headers=auth(login("tech2@test.local"))).json() == []
+r = client.patch(f"/api/projects/{pid}", json={"status": "installed", "report": "8 modules posés, tests OK"}, headers=auth(tech_t))
+assert r.status_code == 200 and r.json()["status"] == "installed" and r.json()["installed_at"], r.text
 assert client.get("/api/status", headers=auth(tech_t)).status_code == 200
 assert client.get("/api/users", headers=auth(tech_t)).status_code == 403
 assert client.get("/api/users/clients", headers=auth(tech_t)).status_code == 403

@@ -30,7 +30,7 @@ def roles():
 def register(payload: RegisterRequest, request: Request):
     try:
         user = user_store.create_user(
-            payload.email, payload.name, CLIENT, payload.password, payload.phone, payload.company,
+            payload.email, payload.name, CLIENT, payload.password, payload.phone, payload.company, payload.address,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc

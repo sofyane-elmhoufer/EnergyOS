@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app import security
 
 from app.auth import current_user, require_roles
-from app.roles import ADMIN, CLIENT, COMMERCIAL, PROJECT_STATUSES, STATUS_RIGHTS, TECHNICIEN, TECHNICIEN_VISIBLE_STATUSES
+from app.roles import ADMIN, CLIENT, COMMERCIAL, PROJECT_STATUSES, STATUS_RIGHTS, TECHNICIEN
 from app.schemas import ProjectCreate, ProjectUpdate
 from app.services import simulation_service, user_store
 
@@ -35,8 +35,19 @@ def summarize(estimate: dict) -> dict:
 
 
 def _strip_contact(project: dict) -> dict:
-    """Le client voit son dossier sans les notes internes."""
+    """Le client voit son dossier sans la note interne de l'équipe."""
     return {key: value for key, value in project.items() if key != "note"}
+
+
+def _for_technician(project: dict) -> dict:
+    """Le technicien voit ce qu'il faut pour la visite : client, adresse, horaire, matériel, consignes."""
+    hidden = {"summary"}
+    data = {key: value for key, value in project.items() if key not in hidden}
+    s = project["summary"]
+    data["summary"] = {k: s[k] for k in ("building_label", "city_label", "modules", "currency")}
+    data["summary"].update({"monthly_bill": 0, "monthly_bill_with_shelly": 0, "yearly_saved_cost": 0,
+                            "yearly_saved_kwh": 0, "investment_total": 0, "payback_months": None})
+    return data
 
 
 @router.post("/mine", status_code=201)
@@ -47,6 +58,7 @@ def save_my_project(payload: ProjectCreate, user: dict = Depends(require_roles(C
     try:
         project = user_store.create_project(
             user["id"], payload.reference, payload.simulation.model_dump(exclude_none=True), summarize(estimate),
+            site_address=payload.site_address or user.get("address", ""),
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -71,8 +83,11 @@ def delete_my_project(project_id: int, user: dict = Depends(require_roles(CLIENT
 
 @router.get("")
 def list_projects(user: dict = Depends(require_roles(COMMERCIAL, TECHNICIEN, ADMIN))):
-    statuses = TECHNICIEN_VISIBLE_STATUSES if user["role"] == TECHNICIEN else None
-    return user_store.list_projects(statuses=statuses)
+    if user["role"] == TECHNICIEN:
+        # Uniquement les visites qui lui sont affectées, sans les montants commerciaux.
+        projects = user_store.list_projects(technician_id=user["id"], statuses=("scheduled", "installed"))
+        return [_for_technician(p) for p in projects]
+    return user_store.list_projects()
 
 
 @router.patch("/{project_id}")
@@ -81,10 +96,21 @@ def update_project(project_id: int, payload: ProjectUpdate, request: Request, us
     if role not in (COMMERCIAL, TECHNICIEN, ADMIN):
         raise HTTPException(403, "Votre profil n'a pas accès à cette fonctionnalité.")
     project = user_store.get_project(project_id)
-    if project is None or (role == TECHNICIEN and project["status"] not in TECHNICIEN_VISIBLE_STATUSES):
+    if project is None or (role == TECHNICIEN and (
+        project["technician_id"] != user["id"] or project["status"] not in ("scheduled", "installed")
+    )):
         raise HTTPException(404, "Dossier introuvable.")
 
     changes = payload.model_dump(exclude_none=True)
+    if role == TECHNICIEN:
+        # Le technicien confirme l'installation et rédige son compte rendu, rien d'autre.
+        forbidden = set(changes) - {"status", "report"}
+        if forbidden:
+            raise HTTPException(403, "Le technicien ne peut que confirmer l'installation et rédiger le compte rendu.")
+    elif "report" in changes and role != ADMIN:
+        raise HTTPException(403, "Le compte rendu est rédigé par le technicien.")
+    if "visit_at" in changes:
+        changes["visit_at"] = changes["visit_at"] or None
     if "status" in changes and changes["status"] != project["status"] and changes["status"] not in STATUS_RIGHTS[role]:
         raise HTTPException(403, "Votre profil ne peut pas attribuer ce statut.")
     if "technician_id" in changes:
@@ -96,7 +122,18 @@ def update_project(project_id: int, payload: ProjectUpdate, request: Request, us
             tech = user_store.get_user(changes["technician_id"])
             if tech is None or tech["role"] != TECHNICIEN or not tech["active"]:
                 raise HTTPException(400, "Technicien introuvable.")
+    # Planifier une visite (date + technicien) sur un dossier accepté le passe en « Installation planifiée ».
+    tech_after = changes.get("technician_id", project["technician_id"]) if "technician_id" in changes else project["technician_id"]
+    visit_after = changes["visit_at"] if "visit_at" in changes else project["visit_at"]
+    if "status" not in changes and project["status"] == "won" and tech_after and visit_after:
+        changes["status"] = "scheduled"
+    if changes.get("status") == "scheduled" and not (tech_after and visit_after):
+        raise HTTPException(400, "Pour planifier, indiquez le technicien et la date de visite.")
+    if changes.get("status") == "installed" and project["status"] != "installed":
+        changes["installed_at"] = user_store.now()
     updated = user_store.update_project(project_id, **changes)
+    if role == TECHNICIEN:
+        updated = _for_technician(updated)
     if "status" in changes and changes["status"] != project["status"]:
         user_store.add_audit(
             "project.status", user, project["reference"],

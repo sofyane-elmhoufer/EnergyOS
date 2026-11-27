@@ -5,7 +5,7 @@ import { formatNumber, getJSON } from "./api";
 import UserDetail from "./UserDetail";
 import { useAuth } from "./auth";
 import { StatusBadge } from "./MySpace";
-import { day, type Project } from "./projects";
+import { day, mapsLink, visitLabel, type Project } from "./projects";
 import { PROJECT_STATUS, ROLE_LABELS, type User } from "./roles";
 import { fmt, formatPayback } from "./simulation";
 
@@ -117,6 +117,11 @@ export function ClientDashboard({ go }: { go: Go }) {
             {" "}{latest.summary.modules} modules, retour sur investissement {formatPayback(latest.summary.payback_months)}.
             {latest.technician_name && ` Technicien : ${latest.technician_name}.`}
           </p>
+          {latest.status === "scheduled" && latest.visit_at && (
+            <p className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+              📅 Visite d'installation prévue le <strong>{visitLabel(latest.visit_at)}</strong>{latest.technician_name ? ` avec ${latest.technician_name}` : ""}{latest.site_address ? `, ${latest.site_address}` : ""}.
+            </p>
+          )}
           {latest.status === "lost"
             ? <p className="mt-4 rounded-xl bg-gray-50 p-3 text-sm text-gray-500">Ce projet a été clôturé. Lancez une nouvelle simulation si votre situation a changé.</p>
             : <ProjectTimeline project={latest} />}
@@ -229,31 +234,47 @@ function CampusAndSystem({ go }: { go: Go }) {
 }
 
 export function TechnicienDashboard({ go }: { go: Go }) {
-  const { user } = useAuth();
-  const { data: projects, error } = useData<Project[]>("/api/projects");
-  const c = countBy(projects ?? []);
-  const mine = (projects ?? []).filter((p) => p.technician_id === user?.id && p.status !== "installed");
+  const { data: visits, error } = useData<Project[]>("/api/projects");
+  const upcoming = (visits ?? []).filter((p) => p.status === "scheduled").sort((a, b) => (a.visit_at ?? "9").localeCompare(b.visit_at ?? "9"));
+  const [today] = useState(() => new Date().toDateString());
+  const todayCount = upcoming.filter((p) => p.visit_at && new Date(p.visit_at).toDateString() === today).length;
+  const next = upcoming[0];
+  const address = next ? next.site_address || next.client_address || "" : "";
   return (
     <div className="space-y-6">
-      <Welcome><Action primary onClick={() => go("Interventions")}><Wrench size={15} /> Interventions</Action></Welcome>
+      <Welcome><Action primary onClick={() => go("Mes visites")}><Wrench size={15} /> Mes visites</Action></Welcome>
       <ErrorBox text={error} />
       <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="À planifier" value={c.won ?? 0} hint="dossiers acceptés" color="text-blue-600" />
-        <Stat label="Planifiées" value={c.scheduled ?? 0} hint="installations à réaliser" color="text-amber-600" />
-        <Stat label="Installées" value={c.installed ?? 0} color="text-emerald-600" />
+        <Stat label="Aujourd'hui" value={todayCount} hint="visites prévues" color="text-blue-600" />
+        <Stat label="À venir" value={upcoming.length} hint="installations planifiées" color="text-amber-600" />
+        <Stat label="Terminées" value={(visits ?? []).filter((p) => p.status === "installed").length} color="text-emerald-600" />
       </div>
       <section className={card}>
-        <h3 className="mb-4 font-semibold">Mes interventions</h3>
-        {projects && mine.length === 0 && <p className="text-sm text-gray-500">Aucune intervention qui vous est affectée pour le moment.</p>}
-        <ul className="divide-y divide-gray-100">
-          {mine.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-              <div><p className="font-medium">{p.client_name} · {p.summary.city_label}</p>
-                <p className="text-xs text-gray-400">{p.summary.modules} modules Shelly · {p.client_phone || p.client_email}</p></div>
-              <StatusBadge status={p.status} />
-            </li>
-          ))}
-        </ul>
+        <h3 className="mb-3 font-semibold">Prochaine visite</h3>
+        {visits && !next && <p className="text-sm text-gray-500">Aucune visite planifiée pour le moment.</p>}
+        {next && (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1 text-sm">
+              <p className="text-lg font-semibold first-letter:uppercase">{visitLabel(next.visit_at)}</p>
+              <p><strong>{next.client_name}</strong>{next.client_phone && <> · <a href={`tel:${next.client_phone}`} className="text-blue-600">{next.client_phone}</a></>}</p>
+              <p className="text-gray-500">{address || "Adresse à demander au client"} · {next.summary.modules} modules Shelly</p>
+            </div>
+            <div className="flex gap-2">
+              {address && <a href={mapsLink(address)} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200">Itinéraire</a>}
+              <Action primary onClick={() => go("Mes visites")}>Voir le détail <ArrowRight size={15} /></Action>
+            </div>
+          </div>
+        )}
+        {upcoming.length > 1 && (
+          <ul className="mt-4 divide-y divide-gray-100 border-t border-gray-100">
+            {upcoming.slice(1, 6).map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm">
+                <span className="first-letter:uppercase">{visitLabel(p.visit_at, false)}</span>
+                <span className="text-gray-500">{p.client_name} · {p.summary.city_label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
       <CampusAndSystem go={go} />
     </div>

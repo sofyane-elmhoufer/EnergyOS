@@ -77,14 +77,14 @@ export function MyQuotes({ onSimulate }: { onSimulate: () => void }) {
 
 export function ProfileForms() {
   const { user, setUser, setSession } = useAuth();
-  const [profile, setProfile] = useState({ name: user?.name ?? "", phone: user?.phone ?? "", company: user?.company ?? "" });
+  const [profile, setProfile] = useState({ name: user?.name ?? "", phone: user?.phone ?? "", company: user?.company ?? "", address: user?.address ?? "" });
   const [pwd, setPwd] = useState({ current: "", next: "", confirm: "" });
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      setUser(await patchJSON<User>("/api/auth/me", { name: profile.name.trim(), phone: profile.phone.trim(), company: profile.company.trim() }));
+      setUser(await patchJSON<User>("/api/auth/me", { name: profile.name.trim(), phone: profile.phone.trim(), company: profile.company.trim(), address: profile.address.trim() }));
       setMessage({ ok: true, text: "Profil enregistré." });
     } catch (e: unknown) { setMessage({ ok: false, text: e instanceof Error ? e.message : "Erreur." }); }
   };
@@ -111,6 +111,9 @@ export function ProfileForms() {
             <label className={labelClass}>Téléphone<input className={inputClass} type="tel" maxLength={30} value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} /></label>
             <label className={labelClass}>Société<input className={inputClass} maxLength={80} value={profile.company} onChange={(e) => setProfile({ ...profile, company: e.target.value })} /></label>
           </div>
+          <label className={labelClass}>Adresse {user.role === "client" ? "du bâtiment à équiper" : ""}
+            <input className={inputClass} maxLength={200} autoComplete="street-address" placeholder="N°, rue, quartier, ville" value={profile.address} onChange={(e) => setProfile({ ...profile, address: e.target.value })} />
+          </label>
           <button type="submit" className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Enregistrer</button>
         </div>
       </form>

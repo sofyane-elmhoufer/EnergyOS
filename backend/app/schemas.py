@@ -66,6 +66,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=200)
     phone: str = Field("", max_length=30)
     company: str = Field("", max_length=80)
+    address: str = Field("", max_length=200)
 
 
 class ProfileUpdate(BaseModel):
@@ -74,6 +75,7 @@ class ProfileUpdate(BaseModel):
     name: str | None = Field(None, min_length=2, max_length=80)
     phone: str | None = Field(None, max_length=30)
     company: str | None = Field(None, max_length=80)
+    address: str | None = Field(None, max_length=200)
 
 
 class PasswordChange(BaseModel):
@@ -97,6 +99,7 @@ class UserUpdate(BaseModel):
     role: str | None = Field(None, pattern=ROLE_PATTERN)
     phone: str | None = Field(None, max_length=30)
     company: str | None = Field(None, max_length=80)
+    address: str | None = Field(None, max_length=200)
     active: bool | None = None
     password: str | None = Field(None, min_length=8, max_length=200)
 
@@ -108,6 +111,7 @@ class ProjectCreate(BaseModel):
 
     reference: str = Field(pattern=r"^DEV-\d{8}-[0-9A-F]{6}$")
     simulation: SimulationRequest
+    site_address: str = Field("", max_length=200)
 
 
 class ProjectUpdate(BaseModel):
@@ -117,3 +121,7 @@ class ProjectUpdate(BaseModel):
     note: str | None = Field(None, max_length=2000)
     # 0 = retirer le technicien affecté
     technician_id: int | None = Field(None, ge=0)
+    site_address: str | None = Field(None, max_length=200)
+    # Date et heure de la visite (AAAA-MM-JJTHH:MM) ; chaîne vide = retirer la date
+    visit_at: str | None = Field(None, pattern=r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})?$")
+    report: str | None = Field(None, max_length=2000)

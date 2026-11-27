@@ -77,6 +77,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
 AUDIT_KEEP = 5000  # nombre d'événements conservés dans le journal
 
 
+# Colonnes ajoutées après la première version : ajoutées aux bases existantes au démarrage.
+MIGRATIONS = {
+    "users": {"address": "TEXT NOT NULL DEFAULT ''"},
+    "projects": {
+        "site_address": "TEXT NOT NULL DEFAULT ''",
+        "visit_at": "TEXT",
+        "report": "TEXT NOT NULL DEFAULT ''",
+        "installed_at": "TEXT",
+    },
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in MIGRATIONS.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, definition in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 def db_path() -> Path:
     return Path(os.getenv("ENSA_DB_PATH") or BACKEND_DIR / "data" / "app.db")
 
@@ -95,6 +115,7 @@ def connect():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 with sqlite3.connect(path) as conn:
                     conn.executescript(SCHEMA)
+                    _migrate(conn)
                 _initialized.add(key)
     conn = sqlite3.connect(path, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -135,7 +156,7 @@ _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
 
 # --- Utilisateurs -----------------------------------------------------------
 
-USER_FIELDS = "id, email, name, role, phone, company, active, created_at, last_login_at"
+USER_FIELDS = "id, email, name, role, phone, company, address, active, created_at, last_login_at"
 
 
 def public_user(row: sqlite3.Row | None) -> dict | None:
@@ -146,13 +167,13 @@ def public_user(row: sqlite3.Row | None) -> dict | None:
     return user
 
 
-def create_user(email: str, name: str, role: str, password: str, phone: str = "", company: str = "") -> dict:
+def create_user(email: str, name: str, role: str, password: str, phone: str = "", company: str = "", address: str = "") -> dict:
     with connect() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO users (email, name, role, password_hash, phone, company, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (email.strip().lower(), name.strip(), role, hash_password(password), phone.strip(), company.strip(), now()),
+                "INSERT INTO users (email, name, role, password_hash, phone, company, address, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (email.strip().lower(), name.strip(), role, hash_password(password), phone.strip(), company.strip(), address.strip(), now()),
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError("Un compte existe déjà avec cette adresse e-mail.") from exc
@@ -177,7 +198,7 @@ def count_admins(active_only: bool = True) -> int:
 
 
 def update_user(user_id: int, **fields) -> dict | None:
-    allowed = {"name", "email", "role", "phone", "company", "active"}
+    allowed = {"name", "email", "role", "phone", "company", "address", "active"}
     if fields.get("email"):
         fields["email"] = fields["email"].strip().lower()
     updates = {key: value for key, value in fields.items() if key in allowed and value is not None}
@@ -266,9 +287,10 @@ def delete_session(token: str) -> None:
 
 PROJECT_SELECT = """
 SELECT p.id, p.reference, p.request_json, p.summary_json, p.status, p.note, p.created_at, p.updated_at,
-       p.technician_id, t.name AS technician_name,
+       p.technician_id, t.name AS technician_name, t.phone AS technician_phone,
+       p.site_address, p.visit_at, p.report, p.installed_at,
        u.id AS client_id, u.name AS client_name, u.email AS client_email, u.phone AS client_phone,
-       u.company AS client_company
+       u.company AS client_company, u.address AS client_address
 FROM projects p
 JOIN users u ON u.id = p.user_id
 LEFT JOIN users t ON t.id = p.technician_id
@@ -282,25 +304,30 @@ def _project(row: sqlite3.Row) -> dict:
     return project
 
 
-def create_project(user_id: int, reference: str, request: dict, summary: dict) -> dict:
+def create_project(user_id: int, reference: str, request: dict, summary: dict, site_address: str = "") -> dict:
     stamp = now()
     with connect() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO projects (user_id, reference, request_json, summary_json, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, reference, json.dumps(request), json.dumps(summary), stamp, stamp),
+                "INSERT INTO projects (user_id, reference, request_json, summary_json, site_address, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, reference, json.dumps(request), json.dumps(summary), site_address.strip(), stamp, stamp),
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError("Ce devis est déjà enregistré.") from exc
         return _project(conn.execute(PROJECT_SELECT + " WHERE p.id = ?", (cursor.lastrowid,)).fetchone())
 
 
-def list_projects(user_id: int | None = None, statuses: tuple[str, ...] | None = None) -> list[dict]:
+def list_projects(
+    user_id: int | None = None, statuses: tuple[str, ...] | None = None, technician_id: int | None = None,
+) -> list[dict]:
     clauses, values = [], []
     if user_id is not None:
         clauses.append("p.user_id = ?")
         values.append(user_id)
+    if technician_id is not None:
+        clauses.append("p.technician_id = ?")
+        values.append(technician_id)
     if statuses:
         clauses.append(f"p.status IN ({', '.join('?' for _ in statuses)})")
         values.extend(statuses)
@@ -317,7 +344,10 @@ def get_project(project_id: int) -> dict | None:
 
 
 def update_project(project_id: int, **fields) -> dict | None:
-    updates = {key: value for key, value in fields.items() if key in {"status", "note", "technician_id"}}
+    updates = {
+        key: value for key, value in fields.items()
+        if key in {"status", "note", "technician_id", "site_address", "visit_at", "report", "installed_at"}
+    }
     if updates:
         assignments = ", ".join(f"{key} = ?" for key in updates)
         with connect() as conn:

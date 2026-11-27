@@ -75,10 +75,7 @@ def user_overview(user_id: int, viewer: dict = Depends(require_roles(ADMIN, COMM
     if target is None or (viewer["role"] == COMMERCIAL and target["role"] != "client"):
         raise HTTPException(404, "Utilisateur introuvable.")
     projects = user_store.list_projects(user_id=user_id) if target["role"] == "client" else []
-    assigned = (
-        user_store.list_projects(statuses=None) if target["role"] == TECHNICIEN else []
-    )
-    assigned = [p for p in assigned if p["technician_id"] == user_id]
+    assigned = user_store.list_projects(technician_id=user_id) if target["role"] == TECHNICIEN else []
     return {
         "user": {**target, "sessions": user_store.session_counts().get(user_id, 0)} if viewer["role"] == ADMIN else target,
         "projects": projects,
@@ -98,7 +95,7 @@ def user_overview(user_id: int, viewer: dict = Depends(require_roles(ADMIN, COMM
 def create_user(payload: UserCreate, request: Request, admin: dict = Depends(require_roles(ADMIN))):
     try:
         user = user_store.create_user(
-            payload.email, payload.name, payload.role, payload.password, payload.phone, payload.company,
+            payload.email, payload.name, payload.role, payload.password, payload.phone, payload.company, payload.address,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -134,9 +131,9 @@ def update_user(user_id: int, payload: UserUpdate, request: Request, admin: dict
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     described = []
-    labels = {"name": "nom", "email": "e-mail", "phone": "téléphone", "company": "société"}
+    labels = {"name": "nom", "email": "e-mail", "phone": "téléphone", "company": "société", "address": "adresse"}
     for key, label in labels.items():
-        if key in changes and changes[key] != target[key]:
+        if key in changes and changes[key] != target.get(key):
             described.append(f"{label} modifié")
     if "role" in changes and changes["role"] != target["role"]:
         described.append(f"profil {ROLE_LABELS[target['role']]} → {ROLE_LABELS[changes['role']]}")

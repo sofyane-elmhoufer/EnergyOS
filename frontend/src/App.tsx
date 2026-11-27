@@ -23,6 +23,7 @@ import { MyQuotes, ProfileForms } from './MySpace';
 import ClientsPage from './ClientsPage';
 import AuditPage from './AuditPage';
 import AdvisorPage from './AdvisorPage';
+import TechnicianVisits from './TechnicianVisits';
 import { AdminDashboard, ClientDashboard, CommercialDashboard, TechnicienDashboard } from './Dashboards';
 import ProjectsPage from './ProjectsPage';
 import UsersPage from './UsersPage';
@@ -73,7 +74,7 @@ const navigation: NavItem[] = [
   { name: "Conseiller IA", icon: Bot, roles: ["client"] },
   { name: "Dossiers clients", icon: Briefcase, roles: ["commercial", "admin"] },
   { name: "Clients", icon: Users, roles: ["commercial", "admin"] },
-  { name: "Interventions", icon: Wrench, roles: ["technicien"] },
+  { name: "Mes visites", icon: Wrench, roles: ["technicien"] },
   { name: "Campus", icon: LayoutDashboard, roles: CAMPUS },
   { name: "Energy Analytics", icon: BarChart3, roles: CAMPUS },
   { name: "Alertes & Gaspillage", icon: AlertTriangle, roles: CAMPUS },
@@ -331,7 +332,8 @@ function App() {
       {current.name === "Settings" && <SettingsPage />}
       {current.name === "Mes devis" && <MyQuotes onSimulate={() => setPage("Simulation")} />}
       {current.name === "Conseiller IA" && <AdvisorPage onSimulate={() => setPage("Simulation")} />}
-      {(current.name === "Dossiers clients" || current.name === "Interventions") && <ProjectsPage />}
+      {current.name === "Dossiers clients" && <ProjectsPage />}
+      {current.name === "Mes visites" && <TechnicianVisits />}
       {current.name === "Clients" && <ClientsPage />}
       {current.name === "Utilisateurs" && <UsersPage />}
       {current.name === "Journal d'activité" && <AuditPage />}

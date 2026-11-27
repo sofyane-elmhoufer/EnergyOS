@@ -9,6 +9,7 @@ export type User = {
   role: Exclude<Role, "guest">;
   phone: string;
   company: string;
+  address: string;
   active: boolean;
   created_at: string;
   last_login_at: string | null;
