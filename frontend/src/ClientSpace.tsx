@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  Bot, Calculator, ChevronDown, Download, FileText, Info, Mail, Phone, Plus, Trash2, TriangleAlert,
+  Bot, Calculator, ChevronDown, Download, FileText, Info, Mail, MailCheck, Phone, Plus, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { getJSON, postJSON } from "./api";
 import ChatPanel from "./ChatPanel";
-import { downloadDevis } from "./devisPdf";
+import { devisAsBase64, downloadDevis } from "./devisPdf";
 import {
   COMPANY, fmt, formatPayback, newDevisReference,
   type ClientInfo, type Estimate, type SimulationOptions, type SimulationRequest,
@@ -29,6 +29,8 @@ type FormState = {
 const inputClass = "mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700 outline-none focus:border-blue-500";
 const smallInput = "w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-700 outline-none focus:border-blue-500";
 const labelClass = "block text-xs font-medium text-gray-500";
+type MailStatus = { state: "idle" | "sending" | "sent" | "error"; message: string };
+
 const cardClass = "rounded-3xl border border-gray-100 bg-white p-6 shadow-sm";
 
 const WARNINGS: Record<string, string> = {
@@ -45,8 +47,8 @@ const num = (value: string) => {
   return cleaned ? Number(cleaned) : undefined;
 };
 
-function Results({ estimate, request, client, reference }: {
-  estimate: Estimate; request: SimulationRequest; client: ClientInfo; reference: string;
+function Results({ estimate, request, client, reference, mail }: {
+  estimate: Estimate; request: SimulationRequest; client: ClientInfo; reference: string; mail: MailStatus;
 }) {
   const [pdfError, setPdfError] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -232,6 +234,12 @@ function Results({ estimate, request, client, reference }: {
           </div>
         </div>
         {pdfError && <p role="alert" className="mt-4 text-sm text-amber-200">{pdfError}</p>}
+        {mail.state !== "idle" && (
+          <p role="status" className={`mt-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm ${mail.state === "error" ? "bg-amber-100 text-amber-900" : "bg-white/15 text-white"}`}>
+            {mail.state === "sent" ? <MailCheck size={16} className="shrink-0" /> : <Mail size={16} className="shrink-0" />}
+            {mail.message}
+          </p>
+        )}
       </section>
     </div>
   );
@@ -250,6 +258,7 @@ export default function ClientSpace() {
   const [result, setResult] = useState<{ estimate: Estimate; request: SimulationRequest; reference: string; client: ClientInfo } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [mail, setMail] = useState<MailStatus>({ state: "idle", message: "" });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -275,6 +284,21 @@ export default function ClientSpace() {
     update("building_type", id);
     const b = options?.building_types.find((item) => item.id === id);
     update("tariff_mode", b?.tariff === "residential" ? "tiered" : "flat");
+  };
+
+  // Le client a saisi son e-mail : le devis lui est envoyé automatiquement après la simulation.
+  const sendDevisByEmail = async (estimate: Estimate, request: SimulationRequest, info: ClientInfo, reference: string) => {
+    setMail({ state: "sending", message: `Envoi du devis à ${info.email}…` });
+    try {
+      const pdf_base64 = await devisAsBase64(estimate, info, reference);
+      await postJSON<{ sent: boolean }>("/api/simulation/send-devis", {
+        email: info.email, name: info.name, reference, pdf_base64, simulation: request,
+      });
+      setMail({ state: "sent", message: `Devis envoyé à ${info.email}. Pensez à vérifier vos courriers indésirables.` });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : "Le serveur ne répond pas.";
+      setMail({ state: "error", message: `${reason} Vous pouvez télécharger le devis avec le bouton ci-dessus.` });
+    }
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -306,9 +330,14 @@ export default function ClientSpace() {
     setSubmitting(true);
     try {
       const estimate = await postJSON<Estimate>("/api/simulation/estimate", request);
-      setResult({ estimate, request, reference: newDevisReference(), client: { ...client } });
+      const reference = newDevisReference();
+      const info = { ...client, email: client.email.trim() };
+      setResult({ estimate, request, reference, client: info });
+      if (info.email) void sendDevisByEmail(estimate, request, info, reference);
+      else setMail({ state: "idle", message: "" });
     } catch (err: unknown) {
       setResult(null);
+      setMail({ state: "idle", message: "" });
       setError(err instanceof Error ? err.message : "Erreur inconnue.");
     } finally {
       setSubmitting(false);
@@ -483,7 +512,7 @@ export default function ClientSpace() {
                 <input className={inputClass} type="text" autoComplete="organization" maxLength={80}
                   value={client.company} onChange={(e) => updateClient("company", e.target.value)} />
               </label>
-              <label className={labelClass}>E-mail
+              <label className={labelClass}>E-mail (pour recevoir le devis)
                 <input className={inputClass} type="email" autoComplete="email" maxLength={80}
                   value={client.email} onChange={(e) => updateClient("email", e.target.value)} />
               </label>
@@ -493,7 +522,8 @@ export default function ClientSpace() {
               </label>
             </div>
             <p className="text-xs text-gray-400">
-              Vos coordonnées servent uniquement à personnaliser le devis PDF : elles restent dans votre navigateur et ne sont jamais envoyées au serveur.
+              Si vous indiquez votre e-mail, le devis PDF vous est envoyé automatiquement à la fin de la simulation.
+              Vos coordonnées servent uniquement à personnaliser et à vous envoyer ce devis : elles ne sont pas enregistrées.
             </p>
           </div>
         )}
@@ -507,7 +537,7 @@ export default function ClientSpace() {
         </div>
       </form>
 
-      {result && <Results key={result.reference} estimate={result.estimate} request={result.request} client={result.client} reference={result.reference} />}
+      {result && <Results key={result.reference} estimate={result.estimate} request={result.request} client={result.client} reference={result.reference} mail={mail} />}
     </div>
   );
 }
