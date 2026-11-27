@@ -30,15 +30,18 @@ ALLOWED_HOSTS = env_list("ENSA_ALLOWED_HOSTS", "localhost,127.0.0.1")
 ENABLE_DOCS = os.getenv("ENSA_ENABLE_DOCS", "false").lower() == "true"
 AGENT_RATE_PER_MINUTE = env_int("ENSA_AGENT_RATE_PER_MINUTE", 10)
 API_RATE_PER_MINUTE = env_int("ENSA_API_RATE_PER_MINUTE", 240)
+EMAIL_RATE_PER_MINUTE = env_int("ENSA_EMAIL_RATE_PER_MINUTE", 3)
 MAX_BODY_BYTES = env_int("ENSA_MAX_BODY_MB", 10) * 1024 * 1024
 
-# Seules ces routes acceptent POST : elles ne modifient aucune donnée serveur.
-# Tout le reste (upload / activation de dataset, etc.) est refusé.
+# Seules ces routes acceptent POST : elles ne modifient aucune donnée serveur
+# (send-devis envoie un e-mail mais n'enregistre rien). Tout le reste
+# (upload / activation de dataset, etc.) est refusé.
 POST_ALLOWLIST = {
     "/api/agent/chat",
     "/api/agent/chat-file",
     "/api/agent/advice",
     "/api/simulation/estimate",
+    "/api/simulation/send-devis",
 }
 
 SECURITY_HEADERS = {
@@ -89,6 +92,12 @@ def agent_rate_limit(request: Request) -> None:
     """Dépendance FastAPI : protège la clé API Groq contre l'abus (coût / quota)."""
     if not rate_limiter.check(client_ip(request), "agent", AGENT_RATE_PER_MINUTE):
         raise HTTPException(429, "Trop de questions envoyées. Réessaie dans une minute.")
+
+
+def email_rate_limit(request: Request) -> None:
+    """Dépendance FastAPI : empêche d'utiliser le serveur pour envoyer des e-mails en masse."""
+    if not rate_limiter.check(client_ip(request), "email", EMAIL_RATE_PER_MINUTE):
+        raise HTTPException(429, "Trop d'envois de devis. Réessayez dans une minute.")
 
 
 async def security_middleware(request: Request, call_next):

@@ -28,3 +28,16 @@ class SimulationRequest(BaseModel):
     days_per_month: float | None = Field(None, gt=0, le=31)
     module_price: float | None = Field(None, ge=0, le=100_000)
     installation_price: float | None = Field(None, ge=0, le=100_000)
+
+
+class SendDevisRequest(BaseModel):
+    """Envoi du devis par e-mail : le résumé de l'e-mail est recalculé côté serveur à partir de `simulation`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=5, max_length=120, pattern=r"^[^@\s<>,;\"]+@[^@\s<>,;\"]+\.[^@\s<>,;\"]{2,}$")
+    name: str = Field("", max_length=80)
+    reference: str = Field(pattern=r"^DEV-\d{8}-[0-9A-F]{6}$")
+    # Un devis pèse ~10 Ko ; 400 000 caractères base64 ≈ 300 Ko.
+    pdf_base64: str = Field(min_length=8, max_length=400_000)
+    simulation: SimulationRequest

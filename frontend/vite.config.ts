@@ -18,7 +18,7 @@ export default defineConfig({
     proxy: {
       "^/api/analytics/(kpis|daily|filters|alerts|forecast)(\\?.*)?$": backend,
       // Espace Client : simulateur d'économies
-      "^/api/simulation/(options|estimate)(\\?.*)?$": backend,
+      "^/api/simulation/(options|estimate|send-devis)(\\?.*)?$": backend,
       // Agent IA
       "^/api/agent/(chat|chat-file|advice)$": backend,
       // Page Settings : état du système

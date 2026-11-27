@@ -11,7 +11,7 @@ Plateforme Smart Campus de suivi et de simulation de consommation electrique de 
 - `backend/data/versions/` et `metadata/` : archive et metadonnees existantes.
 - `Start_ENSA_EnergyOS.bat` / `Start_ENSA_EnergyOS.ps1` : lancement local Windows.
 
-Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite ne transmet a FastAPI (`127.0.0.1:8000`) que les routes utilisees par l'interface : `analytics/(kpis|daily|filters|alerts|forecast)`, `simulation/(options|estimate)` et `agent/(chat|chat-file|advice)`. Ne pas exposer les serveurs via `0.0.0.0`, un tunnel ou un proxy public. Copier `backend/.env.example` en `backend/.env` pour configurer la cle Groq de l'agent IA.
+Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite ne transmet a FastAPI (`127.0.0.1:8000`) que les routes utilisees par l'interface : `analytics/(kpis|daily|filters|alerts|forecast)`, `simulation/(options|estimate|send-devis)` et `agent/(chat|chat-file|advice)`. Ne pas exposer les serveurs via `0.0.0.0`, un tunnel ou un proxy public. Copier `backend/.env.example` en `backend/.env` pour configurer la cle Groq de l'agent IA et, si besoin, le compte SMTP d'envoi des devis.
 
 ## Modules
 
@@ -19,7 +19,7 @@ Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite n
 - **Alertes & Gaspillage** : detection des creneaux ou les lampes restent allumees inutilement (pause de midi, soir, week-end), carte de chaleur jour x heure, classement des salles, alertes par severite.
 - **Previsions** : prevision journaliere par profil de jour de semaine, fourchette min / max, projection fin de mois et annuelle, precision mesuree sur les 7 derniers jours.
 - **AI Energy Agent** : conversation avec historique, graphiques generes, fichiers joints (Excel, CSV, Word, photo de facture).
-- **Espace Client** : inventaire d'appareils (eclairage, climatisation, chauffe-eau, veille...), tarif moyen ou par tranches, retour sur investissement, plan d'action classe par rentabilite, conseiller IA, devis PDF.
+- **Espace Client** : inventaire d'appareils (eclairage, climatisation, chauffe-eau, veille...), tarif moyen ou par tranches, retour sur investissement, plan d'action classe par rentabilite, conseiller IA, devis PDF telechargeable et envoye automatiquement par e-mail quand le client a saisi son adresse (compte SMTP a configurer dans `backend/.env`, par exemple Gmail avec un mot de passe d'application).
 
 ## Definitions importantes
 
@@ -46,6 +46,7 @@ Ces trois tests n'utilisent pas Groq. `backend/tests/live_agent_check.py` interr
 - **Agent IA** : le code pandas ecrit par le LLM n'est jamais execute dans le serveur. Il passe par `backend/app/services/sandbox.py` : validation AST (aucun import, aucun attribut `_prive`, aucune fonction d'ecriture de fichier, `pd` limite a une liste blanche), builtins restreints, puis execution dans un processus separe tue au bout de 15 s.
 - **Prompt injection** : questions, historique et documents sont traites comme des donnees ; la cle API reste cote serveur.
 - **Fichiers joints** : 8 Mo max, type verifie par signature (pas seulement l'extension), protection zip bomb, `defusedxml` contre les attaques XML, limites de lignes et colonnes, aucun fichier conserve.
+- **E-mail du devis** : `POST /api/simulation/send-devis` verifie l'adresse, la reference et la signature du PDF (300 Ko max), recalcule le resume cote serveur, limite a 3 envois / min / IP (`ENSA_EMAIL_RATE_PER_MINUTE`) ; aucune donnee conservee ; identifiants SMTP uniquement dans `backend/.env`.
 - **API** : lecture seule sauf une liste blanche de `POST` sans effet de bord ; routes datasets bloquees (`ENSA_DEMO_MODE`) et identifiants valides (pas de traversee de repertoires) ; `TrustedHostMiddleware` (DNS rebinding) ; CORS restreint ; en-tetes de securite (CSP, `X-Frame-Options`, `nosniff`...) ; limite de debit (10 questions IA / min / IP par defaut) ; taille des requetes bornee ; schemas Pydantic stricts (`extra="forbid"`) ; erreurs internes journalisees mais jamais renvoyees au client ; documentation Swagger desactivee par defaut (`ENSA_ENABLE_DOCS=true` en local).
 - **Avant une mise en ligne publique** : servir le frontend compile derriere HTTPS avec une CSP stricte, placer l'API derriere un reverse proxy de confiance (la limite de debit par IP voit sinon une seule adresse), et ajouter une authentification si des donnees deviennent modifiables.
 
