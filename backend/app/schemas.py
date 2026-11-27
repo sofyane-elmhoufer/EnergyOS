@@ -41,3 +41,78 @@ class SendDevisRequest(BaseModel):
     # Un devis pèse ~10 Ko ; 400 000 caractères base64 ≈ 300 Ko.
     pdf_base64: str = Field(min_length=8, max_length=400_000)
     simulation: SimulationRequest
+
+
+# --- Comptes et dossiers clients ---------------------------------------------
+
+EMAIL_PATTERN = r"^[^@\s<>,;\"]+@[^@\s<>,;\"]+\.[^@\s<>,;\"]{2,}$"
+ROLE_PATTERN = r"^(client|commercial|technicien|admin)$"
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=120)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class RegisterRequest(BaseModel):
+    """Inscription publique : crée toujours un compte client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(max_length=120, pattern=EMAIL_PATTERN)
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=8, max_length=200)
+    phone: str = Field("", max_length=30)
+    company: str = Field("", max_length=80)
+
+
+class ProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, min_length=2, max_length=80)
+    phone: str | None = Field(None, max_length=30)
+    company: str | None = Field(None, max_length=80)
+
+
+class PasswordChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class UserCreate(RegisterRequest):
+    """Création d'un compte par l'administrateur (tous profils)."""
+
+    role: str = Field(pattern=ROLE_PATTERN)
+
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(None, min_length=2, max_length=80)
+    role: str | None = Field(None, pattern=ROLE_PATTERN)
+    phone: str | None = Field(None, max_length=30)
+    company: str | None = Field(None, max_length=80)
+    active: bool | None = None
+    password: str | None = Field(None, min_length=8, max_length=200)
+
+
+class ProjectCreate(BaseModel):
+    """Enregistrement d'une simulation par un client : le résumé est recalculé côté serveur."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reference: str = Field(pattern=r"^DEV-\d{8}-[0-9A-F]{6}$")
+    simulation: SimulationRequest
+
+
+class ProjectUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str | None = Field(None, pattern=r"^(new|contacted|won|lost|scheduled|installed)$")
+    note: str | None = Field(None, max_length=2000)
+    # 0 = retirer le technicien affecté
+    technician_id: int | None = Field(None, ge=0)

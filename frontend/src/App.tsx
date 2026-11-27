@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import {
-  Activity, AlertTriangle, BarChart3, Bot, LayoutDashboard,
-  Settings, Zap, RotateCcw, SlidersHorizontal, Calculator, TrendingUp,
+  Activity, AlertTriangle, BarChart3, Bot, Briefcase, FolderOpen, LayoutDashboard, LogIn, LogOut,
+  Settings, ShieldCheck, UserRound, Wrench, Zap, RotateCcw, SlidersHorizontal, Calculator, TrendingUp,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis,
@@ -15,6 +15,12 @@ import WasteAlerts from './WasteAlerts';
 import { getJSON } from './api';
 import SettingsPage from './SettingsPage';
 import { getSettings } from './settings';
+import { useAuth } from './auth';
+import { ROLE_LABELS, type Role } from './roles';
+import LoginPage from './LoginPage';
+import MySpace, { ProfileForms } from './MySpace';
+import ProjectsPage from './ProjectsPage';
+import UsersPage from './UsersPage';
 
 type KPIs = {
   without_shelly_kwh: number;
@@ -49,15 +55,27 @@ type Selection = {
 const emptySelection: Selection = {
   building: "", floor: "", room: "", start_date: "", end_date: "",
 };
-const navigation = [
-  { name: "Overview", icon: LayoutDashboard },
-  { name: "Energy Analytics", icon: BarChart3 },
-  { name: "Alertes & Gaspillage", icon: AlertTriangle },
-  { name: "Prévisions", icon: TrendingUp },
-  { name: "AI Energy Agent", icon: Bot },
-  { name: "Simulation", icon: Calculator },
-  { name: "Settings", icon: Settings },
+type NavItem = { name: string; icon: ComponentType<{ size?: number }>; roles: Role[] };
+const ALL: Role[] = ["guest", "client", "commercial", "technicien", "admin"];
+const SIGNED_IN: Role[] = ["client", "commercial", "technicien", "admin"];
+// Chaque profil ne voit que les pages auxquelles il a droit (le serveur vérifie aussi chaque accès).
+const navigation: NavItem[] = [
+  { name: "Overview", icon: LayoutDashboard, roles: ALL },
+  { name: "Energy Analytics", icon: BarChart3, roles: ALL },
+  { name: "Alertes & Gaspillage", icon: AlertTriangle, roles: ALL },
+  { name: "Prévisions", icon: TrendingUp, roles: ALL },
+  { name: "AI Energy Agent", icon: Bot, roles: SIGNED_IN },
+  { name: "Simulation", icon: Calculator, roles: ALL },
+  { name: "Mon espace", icon: FolderOpen, roles: ["client"] },
+  { name: "Dossiers clients", icon: Briefcase, roles: ["commercial", "admin"] },
+  { name: "Interventions", icon: Wrench, roles: ["technicien"] },
+  { name: "Utilisateurs", icon: ShieldCheck, roles: ["admin"] },
+  { name: "Mon compte", icon: UserRound, roles: ["commercial", "technicien", "admin"] },
+  { name: "Settings", icon: Settings, roles: ALL },
 ];
+const HOME: Record<Role, string> = {
+  guest: "Overview", client: "Mon espace", commercial: "Dossiers clients", technicien: "Interventions", admin: "Dossiers clients",
+};
 const formatNumber = (value: number) =>
   value.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -263,7 +281,15 @@ function EnergyAnalytics() {
 }
 
 function App() {
+  const { user, role, ready, logout } = useAuth();
   const [page, setPage] = useState(() => getSettings().startPage);
+  const items = navigation.filter((item) => item.roles.includes(role));
+  // Page non autorisée pour ce profil (ex : après une déconnexion) : retour à l'accueil.
+  // "__home__" = juste après la connexion : page d'accueil propre au profil.
+  const target = page === "__home__" ? HOME[role] : page;
+  const current = target === "Connexion" && role === "guest" ? target : items.some((i) => i.name === target) ? target : "Overview";
+
+  if (!ready) return <div className="p-10 text-gray-500">Chargement…</div>;
   return (
     <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-fg)]">
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-gray-200 bg-white p-6 lg:block">
@@ -271,10 +297,10 @@ function App() {
           <div className="rounded-xl bg-blue-600 p-2 text-white"><Zap size={22} /></div>
           <div><h1 className="font-bold tracking-tight">ENSA EnergyOS</h1><p className="text-xs text-gray-400">Smart Campus Platform</p></div>
         </div>
-        <nav className="space-y-2">
-          {navigation.map(({ name, icon: Icon }) => (
+        <nav className="space-y-1">
+          {items.map(({ name, icon: Icon }) => (
             <button key={name} onClick={() => setPage(name)}
-              className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm transition ${page === name ? "bg-blue-50 font-semibold text-blue-600" : "text-gray-500 hover:bg-gray-100"}`}>
+              className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition ${current === name ? "bg-blue-50 font-semibold text-blue-600" : "text-gray-500 hover:bg-gray-100"}`}>
               <Icon size={18} />{name}
             </button>
           ))}
@@ -286,26 +312,46 @@ function App() {
       </aside>
       <main className="p-6 lg:ml-64 lg:p-10">
         <header className="mb-10 flex items-center justify-between gap-4">
-          <div><p className="mb-2 text-sm text-gray-400">ENSA Fès / Smart Campus</p><h2 className="text-3xl font-semibold tracking-tight">{page}</h2></div>
-          <span className="rounded-full border border-gray-200 bg-white px-4 py-2 text-xs text-gray-500">Simulated Data</span>
+          <div><p className="mb-2 text-sm text-gray-400">ENSA Fès / Smart Campus</p><h2 className="text-3xl font-semibold tracking-tight">{current}</h2></div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="hidden rounded-full border border-gray-200 bg-white px-4 py-2 text-xs text-gray-500 sm:inline">Simulated Data</span>
+            {user ? (
+              <>
+                <span className="rounded-full bg-white px-4 py-2 text-xs text-gray-600 shadow-sm">
+                  <strong className="font-semibold">{user.name}</strong> · {ROLE_LABELS[role]}
+                </span>
+                <button type="button" onClick={() => { void logout(); setPage("Overview"); }} title="Se déconnecter" aria-label="Se déconnecter"
+                  className="rounded-full bg-white p-2 text-gray-500 shadow-sm hover:text-rose-600"><LogOut size={16} /></button>
+              </>
+            ) : (
+              <button type="button" onClick={() => setPage("Connexion")}
+                className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                <LogIn size={14} /> Se connecter
+              </button>
+            )}
+          </div>
         </header>
         <div className="mb-6 flex gap-2 overflow-x-auto lg:hidden">
-          {navigation.map(({ name }) => (
+          {items.map(({ name }) => (
             <button key={name} onClick={() => setPage(name)}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm ${page === name ? "bg-blue-600 text-white" : "bg-white text-gray-500"}`}>
+              className={`shrink-0 rounded-full px-4 py-2 text-sm ${current === name ? "bg-blue-600 text-white" : "bg-white text-gray-500"}`}>
               {name}
             </button>
           ))}
         </div>
-        {page === "Overview" && <DataView selection={emptySelection} />}
-        {page === "Energy Analytics" && <EnergyAnalytics />}
-        {page === "AI Energy Agent" && (
-          <AIEnergyAgent />
-        )}
-        {page === "Simulation" && <ClientSpace />}
-        {page === "Alertes & Gaspillage" && <WasteAlerts />}
-        {page === "Prévisions" && <Forecast />}
-        {page === "Settings" && <SettingsPage />}
+        {current === "Overview" && <DataView selection={emptySelection} />}
+        {current === "Energy Analytics" && <EnergyAnalytics />}
+        {current === "AI Energy Agent" && <AIEnergyAgent />}
+        {current === "Simulation" && <ClientSpace />}
+        {current === "Alertes & Gaspillage" && <WasteAlerts />}
+        {current === "Prévisions" && <Forecast />}
+        {current === "Settings" && <SettingsPage />}
+        {current === "Mon espace" && <MySpace onSimulate={() => setPage("Simulation")} />}
+        {(current === "Dossiers clients" || current === "Interventions") && <ProjectsPage />}
+        {current === "Utilisateurs" && <UsersPage />}
+        {current === "Mon compte" && <ProfileForms />}
+        {current === "Connexion" && <LoginPage onDone={() => setPage("__home__")} />}
+
         <footer className="mt-10 text-center text-xs text-gray-400">ENSA EnergyOS · Smart Campus Energy Management · Simulated Data</footer>
       </main>
     </div>

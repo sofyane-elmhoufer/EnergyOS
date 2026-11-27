@@ -25,12 +25,17 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
-ALLOWED_ORIGINS = env_list("ENSA_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-ALLOWED_HOSTS = env_list("ENSA_ALLOWED_HOSTS", "localhost,127.0.0.1")
+# capacitor://localhost (iOS) et http://localhost (Android) : origines de l'application mobile.
+ALLOWED_ORIGINS = env_list(
+    "ENSA_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,capacitor://localhost,http://localhost",
+)
+# 10.0.2.2 : adresse du Mac / PC vue depuis l'émulateur Android.
+ALLOWED_HOSTS = env_list("ENSA_ALLOWED_HOSTS", "localhost,127.0.0.1,10.0.2.2")
 ENABLE_DOCS = os.getenv("ENSA_ENABLE_DOCS", "false").lower() == "true"
 AGENT_RATE_PER_MINUTE = env_int("ENSA_AGENT_RATE_PER_MINUTE", 10)
 API_RATE_PER_MINUTE = env_int("ENSA_API_RATE_PER_MINUTE", 240)
 EMAIL_RATE_PER_MINUTE = env_int("ENSA_EMAIL_RATE_PER_MINUTE", 3)
+LOGIN_RATE_PER_MINUTE = env_int("ENSA_LOGIN_RATE_PER_MINUTE", 10)
 MAX_BODY_BYTES = env_int("ENSA_MAX_BODY_MB", 10) * 1024 * 1024
 
 # Seules ces routes acceptent POST : elles ne modifient aucune donnée serveur
@@ -43,6 +48,11 @@ POST_ALLOWLIST = {
     "/api/simulation/estimate",
     "/api/simulation/send-devis",
 }
+
+# Comptes et dossiers clients : écriture autorisée (POST / PATCH / DELETE), mais chaque route
+# vérifie elle-même l'identité et le profil de l'utilisateur (voir app/auth.py).
+ACCOUNT_WRITE_PREFIXES = ("/api/auth/", "/api/users", "/api/projects")
+ACCOUNT_WRITE_METHODS = ("POST", "PATCH", "DELETE")
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -104,7 +114,8 @@ async def security_middleware(request: Request, call_next):
     path = request.url.path
 
     if request.method not in ("GET", "HEAD", "OPTIONS"):
-        if request.method != "POST" or path not in POST_ALLOWLIST:
+        account_write = request.method in ACCOUNT_WRITE_METHODS and path.startswith(ACCOUNT_WRITE_PREFIXES)
+        if not account_write and (request.method != "POST" or path not in POST_ALLOWLIST):
             return JSONResponse(status_code=403, content={"detail": "Read-only demo: modifications disabled"})
 
     length = request.headers.get("content-length")

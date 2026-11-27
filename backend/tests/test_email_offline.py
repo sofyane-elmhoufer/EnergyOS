@@ -59,9 +59,9 @@ port = server.getsockname()[1]
 threading.Thread(target=fake_smtp, args=(server,), daemon=True).start()
 
 # Configuration AVANT l'import de l'application (les variables sont lues au chargement).
-for key in ("SMTP_USER", "SMTP_PASSWORD"):
-    os.environ.pop(key, None)
-os.environ.update(SMTP_HOST="127.0.0.1", SMTP_PORT=str(port), SMTP_SECURITY="none", SMTP_FROM="devis@test.local")
+# Valeurs vides (et non supprimées) : backend/.env ne doit pas y injecter de vrais identifiants.
+os.environ.update(SMTP_HOST="127.0.0.1", SMTP_PORT=str(port), SMTP_SECURITY="none", SMTP_FROM="devis@test.local",
+                  SMTP_USER="", SMTP_PASSWORD="")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -116,7 +116,7 @@ print("OK limite de débit :", codes)
 from app import security  # noqa: E402
 
 security.rate_limiter = security.RateLimiter()
-os.environ.pop("SMTP_HOST")
+os.environ["SMTP_HOST"] = ""
 response = client.post("/api/simulation/send-devis", json=body)
 assert response.status_code == 503, response.text
 print("OK message clair sans configuration SMTP")

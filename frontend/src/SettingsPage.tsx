@@ -3,6 +3,7 @@ import {
   Bot, Check, Database, Monitor, Moon, Palette, RefreshCw, RotateCcw, Server, SlidersHorizontal, Sun, Wallet, XCircle,
 } from "lucide-react";
 import { formatNumber, getJSON } from "./api";
+import { useAuth } from "./auth";
 import {
   DEFAULT_SETTINGS, PAGES, resetSettings, updateSettings, useSettings, type Accent, type FontSize, type Theme,
 } from "./settings";
@@ -86,7 +87,11 @@ export default function SettingsPage() {
     return () => clearTimeout(timer);
   }, [saved, settings]);
 
+  const { role } = useAuth();
+  // L'état du système (serveur, clé IA, données) est réservé à l'administrateur et au technicien.
+  const canSeeStatus = role === "admin" || role === "technicien";
   const checkStatus = useCallback(async () => {
+    if (!canSeeStatus) return;
     setChecking(true);
     setStatusError("");
     try {
@@ -97,7 +102,7 @@ export default function SettingsPage() {
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [canSeeStatus]);
   useEffect(() => { void checkStatus(); }, [checkStatus]);
 
   const applyPrice = () => {
@@ -204,6 +209,7 @@ export default function SettingsPage() {
           </p>
         </Section>
 
+        {canSeeStatus && (
         <Section icon={Server} title="État du système" subtitle="Vérification en direct du serveur, des données et de l'agent IA">
           {statusError && <p role="alert" className="mb-3 text-sm text-red-600">{statusError}</p>}
           {status && (
@@ -223,6 +229,7 @@ export default function SettingsPage() {
             <RefreshCw size={15} className={checking ? "animate-spin" : ""} /> {checking ? "Vérification…" : "Vérifier à nouveau"}
           </button>
         </Section>
+        )}
       </div>
 
       <section className={`${card} flex flex-wrap items-center justify-between gap-4`}>

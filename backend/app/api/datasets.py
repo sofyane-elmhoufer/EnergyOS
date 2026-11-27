@@ -8,13 +8,15 @@ import re
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.auth import require_roles
 from app.demo_security import require_dataset_write_access
+from app.roles import ADMIN
 from app.services.dataset_manager import (
     DatasetValidationError,
     register_dataset,
 )
 
-router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
+router = APIRouter(prefix="/api/datasets", tags=["Datasets"], dependencies=[Depends(require_roles(ADMIN))])
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 METADATA_DIR = BASE_DIR / "data" / "metadata"

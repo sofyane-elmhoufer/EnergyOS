@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth import current_user
 from app.schemas import SimulationRequest
 from app.security import agent_rate_limit
 from app.services import simulation_service
@@ -32,7 +33,8 @@ VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-
 router = APIRouter(
     prefix="/api/agent",
     tags=["AI Agent"],
-    dependencies=[Depends(agent_rate_limit)],  # limite de questions / minute / IP
+    # Réservé aux utilisateurs connectés (protège le quota Groq) + limite de questions / minute / IP.
+    dependencies=[Depends(current_user), Depends(agent_rate_limit)],
 )
 
 JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]

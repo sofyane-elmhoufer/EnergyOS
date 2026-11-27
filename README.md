@@ -11,7 +11,7 @@ Plateforme Smart Campus de suivi et de simulation de consommation electrique de 
 - `backend/data/versions/` et `metadata/` : archive et metadonnees existantes.
 - `Start_ENSA_EnergyOS.bat` / `Start_ENSA_EnergyOS.ps1` : lancement local Windows.
 
-Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite ne transmet a FastAPI (`127.0.0.1:8000`) que les routes utilisees par l'interface : `analytics/(kpis|daily|filters|alerts|forecast)`, `simulation/(options|estimate|send-devis)` et `agent/(chat|chat-file|advice)`. Ne pas exposer les serveurs via `0.0.0.0`, un tunnel ou un proxy public. Copier `backend/.env.example` en `backend/.env` pour configurer la cle Groq de l'agent IA et, si besoin, le compte SMTP d'envoi des devis.
+Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite ne transmet a FastAPI (`127.0.0.1:8000`) que les routes utilisees par l'interface : `analytics/(kpis|daily|filters|alerts|forecast)`, `simulation/(options|estimate|send-devis)`, `agent/(chat|chat-file|advice)`, `status`, ainsi que les comptes : `auth/(login|register|logout|me|password|roles)`, `users` et `projects`. Ne pas exposer les serveurs via `0.0.0.0`, un tunnel ou un proxy public. Copier `backend/.env.example` en `backend/.env` pour configurer la cle Groq de l'agent IA et, si besoin, le compte SMTP d'envoi des devis.
 
 ## Modules
 
@@ -20,6 +20,30 @@ Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite n
 - **Previsions** : prevision journaliere par profil de jour de semaine, fourchette min / max, projection fin de mois et annuelle, precision mesuree sur les 7 derniers jours.
 - **AI Energy Agent** : conversation avec historique, graphiques generes, fichiers joints (Excel, CSV, Word, photo de facture).
 - **Espace Client** : inventaire d'appareils (eclairage, climatisation, chauffe-eau, veille...), tarif moyen ou par tranches, retour sur investissement, plan d'action classe par rentabilite, conseiller IA, devis PDF telechargeable et envoye automatiquement par e-mail quand le client a saisi son adresse (compte SMTP a configurer dans `backend/.env`, par exemple Gmail avec un mot de passe d'application).
+
+- **Comptes et profils** : connexion, inscription des clients, 5 profils (voir ci-dessous), espace client, suivi des dossiers, gestion des utilisateurs.
+- **Application mobile** : Android et iOS avec Capacitor, a partir du meme code (voir [MOBILE.md](MOBILE.md)).
+- **Modules Shelly reels** : non connectes pour l'instant (donnees simulees) ; integration prevue a la reception du materiel.
+
+## Comptes et profils
+
+| Profil | Acces |
+|---|---|
+| Invite (sans compte) | Tableaux de bord, alertes, previsions, simulation et devis PDF. |
+| Client | + agent IA, simulations enregistrees automatiquement dans « Mon espace », telechargement des devis, suivi de son dossier, profil et mot de passe. |
+| Commercial | + « Dossiers clients » : tous les dossiers, statut (nouveau, contacte, accepte, perdu), note interne, affectation d'un technicien. |
+| Technicien | + « Interventions » : dossiers acceptes, installation planifiee puis installee ; etat du systeme dans Settings. |
+| Administrateur | Tout, dont « Utilisateurs » : creation des comptes, changement de profil, reinitialisation du mot de passe, desactivation. |
+
+Les clients creent leur compte eux-memes ; les comptes commercial, technicien et administrateur sont crees par un administrateur. Chaque droit est verifie par le serveur (`backend/app/auth.py`, `backend/app/roles.py`), pas seulement par l'interface.
+
+Les comptes et dossiers sont stockes dans `backend/data/app.db` (SQLite, cree automatiquement, jamais versionne). Pour creer le premier administrateur, depuis la racine :
+
+```powershell
+& ./backend/.venv/Scripts/python.exe backend/scripts/create_user.py
+```
+
+Pour une demonstration, `backend/scripts/seed_demo_accounts.py` cree un compte par profil avec des mots de passe aleatoires ecrits dans `backend/data/comptes_demo.txt` (non versionne).
 
 ## Definitions importantes
 
@@ -37,11 +61,15 @@ Depuis la racine :
 & ./backend/.venv/Scripts/python.exe backend/tests/test_sandbox.py
 & ./backend/.venv/Scripts/python.exe backend/tests/test_tariff.py
 & ./backend/.venv/Scripts/python.exe backend/tests/test_agent_offline.py
+& ./backend/.venv/Scripts/python.exe backend/tests/test_email_offline.py
+& ./backend/.venv/Scripts/python.exe backend/tests/test_accounts_offline.py
 ```
 
-Ces trois tests n'utilisent pas Groq. `backend/tests/live_agent_check.py` interroge le vrai agent (serveur lance) et compare ses reponses aux calculs pandas : il consomme environ 100 000 tokens, a lancer seulement quand le quota le permet.
+Ces tests n'utilisent ni Groq ni de vrai serveur e-mail. `backend/tests/live_agent_check.py` interroge le vrai agent (serveur lance) et compare ses reponses aux calculs pandas : il consomme environ 100 000 tokens, a lancer seulement quand le quota le permet.
 
 ## Securite
+
+- **Comptes** : mots de passe haches avec scrypt (sel aleatoire), jetons de session aleatoires dont seule l'empreinte SHA-256 est stockee, expiration apres 7 jours, sessions fermees au changement de mot de passe, de profil ou a la desactivation ; meme message d'erreur que l'e-mail existe ou non ; 10 tentatives de connexion / min / IP (`ENSA_LOGIN_RATE_PER_MINUTE`) ; requetes SQL parametrees ; au moins un administrateur actif garanti ; l'inscription publique ne cree que des comptes client.
 
 - **Agent IA** : le code pandas ecrit par le LLM n'est jamais execute dans le serveur. Il passe par `backend/app/services/sandbox.py` : validation AST (aucun import, aucun attribut `_prive`, aucune fonction d'ecriture de fichier, `pd` limite a une liste blanche), builtins restreints, puis execution dans un processus separe tue au bout de 15 s.
 - **Prompt injection** : questions, historique et documents sont traites comme des donnees ; la cle API reste cote serveur.
