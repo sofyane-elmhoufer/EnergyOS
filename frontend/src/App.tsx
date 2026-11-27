@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 import {
   Activity, AlertTriangle, BarChart3, Bot, Briefcase, FolderOpen, LayoutDashboard, LogIn, LogOut,
-  Settings, ShieldCheck, UserRound, Wrench, Zap, RotateCcw, SlidersHorizontal, Calculator, TrendingUp,
+  Settings, ShieldCheck, UserRound, Wrench, RotateCcw, SlidersHorizontal, Calculator, TrendingUp,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis,
@@ -18,6 +18,8 @@ import { getSettings } from './settings';
 import { useAuth } from './auth';
 import { ROLE_LABELS, type Role } from './roles';
 import LoginPage from './LoginPage';
+import { LogoMark } from './Logo';
+import WelcomePage from './WelcomePage';
 import MySpace, { ProfileForms } from './MySpace';
 import ProjectsPage from './ProjectsPage';
 import UsersPage from './UsersPage';
@@ -73,6 +75,7 @@ const navigation: NavItem[] = [
   { name: "Mon compte", icon: UserRound, roles: ["commercial", "technicien", "admin"] },
   { name: "Settings", icon: Settings, roles: ALL },
 ];
+const GUEST_KEY = "ensa-energyos-guest";
 const HOME: Record<Role, string> = {
   guest: "Overview", client: "Mon espace", commercial: "Dossiers clients", technicien: "Interventions", admin: "Dossiers clients",
 };
@@ -283,6 +286,14 @@ function EnergyAnalytics() {
 function App() {
   const { user, role, ready, logout } = useAuth();
   const [page, setPage] = useState(() => getSettings().startPage);
+  // Écran d'accueil (logo + connexion) tant qu'un visiteur n'a ni compte ni choisi « Continuer sans compte ».
+  const [guestMode, setGuestMode] = useState(() => {
+    try { return sessionStorage.getItem(GUEST_KEY) === "1"; } catch { return false; }
+  });
+  const chooseGuest = (value: boolean) => {
+    setGuestMode(value);
+    try { if (value) sessionStorage.setItem(GUEST_KEY, "1"); else sessionStorage.removeItem(GUEST_KEY); } catch { /* indisponible */ }
+  };
   const items = navigation.filter((item) => item.roles.includes(role));
   // Page non autorisée pour ce profil (ex : après une déconnexion) : retour à l'accueil.
   // "__home__" = juste après la connexion : page d'accueil propre au profil.
@@ -290,12 +301,15 @@ function App() {
   const current = target === "Connexion" && role === "guest" ? target : items.some((i) => i.name === target) ? target : "Overview";
 
   if (!ready) return <div className="p-10 text-gray-500">Chargement…</div>;
+  if (!user && !guestMode) {
+    return <WelcomePage onDone={() => setPage("__home__")} onGuest={() => { chooseGuest(true); setPage("Overview"); }} />;
+  }
   return (
     <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-fg)]">
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-gray-200 bg-white p-6 lg:block">
         <div className="mb-12 flex items-center gap-3">
-          <div className="rounded-xl bg-blue-600 p-2 text-white"><Zap size={22} /></div>
-          <div><h1 className="font-bold tracking-tight">ENSA EnergyOS</h1><p className="text-xs text-gray-400">Smart Campus Platform</p></div>
+          <LogoMark size={40} />
+          <div><h1 className="font-bold tracking-tight">Energy<span className="text-blue-600">OS</span></h1><p className="text-xs text-gray-400">ENSA Fès · Smart Campus</p></div>
         </div>
         <nav className="space-y-1">
           {items.map(({ name, icon: Icon }) => (
@@ -320,11 +334,11 @@ function App() {
                 <span className="rounded-full bg-white px-4 py-2 text-xs text-gray-600 shadow-sm">
                   <strong className="font-semibold">{user.name}</strong> · {ROLE_LABELS[role]}
                 </span>
-                <button type="button" onClick={() => { void logout(); setPage("Overview"); }} title="Se déconnecter" aria-label="Se déconnecter"
+                <button type="button" onClick={() => { void logout(); chooseGuest(false); setPage("Overview"); }} title="Se déconnecter" aria-label="Se déconnecter"
                   className="rounded-full bg-white p-2 text-gray-500 shadow-sm hover:text-rose-600"><LogOut size={16} /></button>
               </>
             ) : (
-              <button type="button" onClick={() => setPage("Connexion")}
+              <button type="button" onClick={() => chooseGuest(false)}
                 className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
                 <LogIn size={14} /> Se connecter
               </button>

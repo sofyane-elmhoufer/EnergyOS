@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { LogIn, UserPlus } from "lucide-react";
+import { ArrowRight, LogIn, UserPlus } from "lucide-react";
 import { useAuth } from "./auth";
 
 const inputClass = "mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700 outline-none focus:border-blue-500";
 const labelClass = "block text-xs font-medium text-gray-500";
 
-export default function LoginPage({ onDone }: { onDone: () => void }) {
+export default function LoginPage({ onDone, onGuest }: { onDone: () => void; onGuest?: () => void }) {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [form, setForm] = useState({ email: "", password: "", confirm: "", name: "", phone: "", company: "" });
@@ -85,9 +85,18 @@ export default function LoginPage({ onDone }: { onDone: () => void }) {
             : "Votre compte client vous permet d'enregistrer vos simulations, de retrouver vos devis et de suivre votre dossier."}
         </p>
       </div>
-      <p className="mt-4 text-center text-xs text-gray-400">
-        Sans compte, vous pouvez consulter les tableaux de bord et faire une simulation en tant qu'invité.
-      </p>
+      {onGuest ? (
+        <div className="mt-5 text-center">
+          <button type="button" onClick={onGuest} className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-blue-600">
+            Continuer sans compte <ArrowRight size={15} />
+          </button>
+          <p className="mt-1 text-xs text-gray-400">Tableaux de bord et simulation accessibles en tant qu'invité.</p>
+        </div>
+      ) : (
+        <p className="mt-4 text-center text-xs text-gray-400">
+          Sans compte, vous pouvez consulter les tableaux de bord et faire une simulation en tant qu'invité.
+        </p>
+      )}
     </div>
   );
 }
