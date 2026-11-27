@@ -27,17 +27,29 @@ Les requetes React passent toutes par le proxy Vite (aucune URL absolue). Vite n
 
 ## Comptes et profils
 
-| Profil | Acces |
-|---|---|
-| Invite (sans compte) | Tableaux de bord, alertes, previsions, simulation et devis PDF. |
-| Client | + agent IA, simulations enregistrees automatiquement dans « Mon espace », telechargement des devis, suivi de son dossier, profil et mot de passe. |
-| Commercial | + « Dossiers clients » : tous les dossiers, statut (nouveau, contacte, accepte, perdu), note interne, affectation d'un technicien. |
-| Technicien | + « Interventions » : dossiers acceptes, installation planifiee puis installee ; etat du systeme dans Settings. |
-| Administrateur | Tout, dont « Utilisateurs » : creation des comptes, changement de profil, reinitialisation du mot de passe, desactivation. |
+Le site a deux interfaces : l'**Espace client** (invite, client ; menu lateral clair) et l'**Administration** (commercial, technicien, administrateur ; menu lateral sombre). Chaque profil a son propre tableau de bord et ne voit que ses pages.
+
+| Profil | Interface | Pages |
+|---|---|---|
+| Invite (sans compte) | Espace client | Accueil (vitrine du campus), Simulation et devis PDF, Parametres |
+| Client | Espace client | Tableau de bord (suivi de son projet etape par etape), Simulation (enregistree automatiquement), Mes devis, Conseiller IA (repond a partir de ses simulations enregistrees), Parametres (dont son compte : profil et mot de passe) |
+| Commercial | Administration | Tableau de bord (a contacter, en negociation, signes, taux de transformation), Dossiers clients, Clients (avec fiche client : simulations, devis, suivi), Simulation, Mon compte |
+| Technicien | Administration | Tableau de bord (interventions, campus, etat du systeme), Interventions, Campus, Energy Analytics, Alertes & Gaspillage, Previsions, AI Energy Agent, Mon compte |
+| Administrateur | Administration | Tout : tableau de bord global (dernieres simulations, activite recente, derniers inscrits), dossiers (dont suppression), clients avec fiche complete (coordonnees, toutes les simulations et devis, suivi, activite du compte), donnees du campus, agent IA, Utilisateurs (creation, modification complete dont e-mail, profil, mot de passe, deconnexion de tous les appareils, desactivation, suppression definitive, export CSV), Journal d'activite (connexions, echecs de connexion, actions sur les comptes et les dossiers) |
 
 Les clients creent leur compte eux-memes ; les comptes commercial, technicien et administrateur sont crees par un administrateur. Chaque droit est verifie par le serveur (`backend/app/auth.py`, `backend/app/roles.py`), pas seulement par l'interface.
 
-Les comptes et dossiers sont stockes dans `backend/data/app.db` (SQLite, cree automatiquement, jamais versionne). Pour creer le premier administrateur, depuis la racine :
+Les comptes et dossiers sont stockes dans `backend/data/app.db` (SQLite, cree automatiquement, jamais versionne).
+
+**Premier administrateur** : renseigner dans `backend/.env` puis demarrer le backend ; le compte est cree automatiquement s'il n'existe encore aucun administrateur (aucun mot de passe par defaut n'est code en dur) :
+
+```
+ENSA_ADMIN_EMAIL=admin@votre-domaine.ma
+ENSA_ADMIN_PASSWORD=un-mot-de-passe-solide
+ENSA_ADMIN_NAME=Votre Nom
+```
+
+Autre possibilite, en ligne de commande, depuis la racine :
 
 ```powershell
 & ./backend/.venv/Scripts/python.exe backend/scripts/create_user.py

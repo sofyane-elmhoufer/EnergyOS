@@ -45,6 +45,11 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(projects_router)
 
+# Premier administrateur créé automatiquement depuis backend/.env s'il n'en existe aucun.
+from app.services.user_store import ensure_initial_admin  # noqa: E402
+
+ensure_initial_admin(logger)
+
 # Ordre : le dernier ajouté s'exécute en premier.
 app.middleware("http")(security.security_middleware)
 app.add_middleware(

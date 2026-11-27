@@ -27,22 +27,26 @@ def roles():
 
 
 @router.post("/register", dependencies=[Depends(_login_rate_limit)])
-def register(payload: RegisterRequest):
+def register(payload: RegisterRequest, request: Request):
     try:
         user = user_store.create_user(
             payload.email, payload.name, CLIENT, payload.password, payload.phone, payload.company,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    user_store.add_audit("auth.register", user, user["email"], "Inscription client", security.client_ip(request))
     return _session_response(user)
 
 
 @router.post("/login", dependencies=[Depends(_login_rate_limit)])
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, request: Request):
     user = user_store.authenticate(payload.email, payload.password)
+    ip = security.client_ip(request)
     if user is None:
+        user_store.add_audit("auth.failed", None, payload.email.strip().lower()[:120], "Connexion refusée", ip)
         # Même message que l'e-mail existe ou non : on ne révèle pas quels comptes existent.
         raise HTTPException(401, "E-mail ou mot de passe incorrect.")
+    user_store.add_audit("auth.login", user, user["email"], "Connexion", ip)
     return _session_response(user)
 
 

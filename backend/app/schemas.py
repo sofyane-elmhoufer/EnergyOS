@@ -93,6 +93,7 @@ class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(None, min_length=2, max_length=80)
+    email: str | None = Field(None, max_length=120, pattern=EMAIL_PATTERN)
     role: str | None = Field(None, pattern=ROLE_PATTERN)
     phone: str | None = Field(None, max_length=30)
     company: str | None = Field(None, max_length=80)

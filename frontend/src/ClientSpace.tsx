@@ -52,6 +52,7 @@ const num = (value: string) => {
 function Results({ estimate, request, client, reference, mail, saved }: {
   estimate: Estimate; request: SimulationRequest; client: ClientInfo; reference: string; mail: MailStatus; saved: SaveStatus;
 }) {
+  const { role } = useAuth();
   const [pdfError, setPdfError] = useState("");
   const [generating, setGenerating] = useState(false);
   const { monthly, yearly, inputs, assumptions, investment, currency } = estimate;
@@ -198,6 +199,11 @@ function Results({ estimate, request, client, reference, mail, saved }: {
       <section className={cardClass}>
         <h3 className="flex items-center gap-2 font-semibold"><Bot size={18} className="text-blue-600" /> Votre conseiller énergétique IA</h3>
         <p className="mb-4 text-xs text-gray-400">Posez vos questions sur cette simulation : l'IA s'appuie sur vos chiffres pour vous conseiller.</p>
+        {role === "guest" ? (
+          <p className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-600">
+            Créez un compte client gratuit (bouton « Se connecter » en haut) pour poser vos questions au conseiller IA sur cette simulation.
+          </p>
+        ) : (
         <ChatPanel
           endpoint="advice"
           extraBody={{ simulation: request }}
@@ -209,6 +215,7 @@ function Results({ estimate, request, client, reference, mail, saved }: {
             "Quels horaires programmer pour mes appareils ?",
           ]}
         />
+        )}
       </section>
 
       <section className="rounded-3xl bg-blue-600 p-7 text-white shadow-sm">

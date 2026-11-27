@@ -3,10 +3,12 @@ Dossiers clients : simulations enregistrées par les clients, puis suivies
 par les commerciaux (contact, acceptation) et les techniciens (installation).
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from app import security
 
 from app.auth import current_user, require_roles
-from app.roles import ADMIN, CLIENT, COMMERCIAL, STATUS_RIGHTS, TECHNICIEN, TECHNICIEN_VISIBLE_STATUSES
+from app.roles import ADMIN, CLIENT, COMMERCIAL, PROJECT_STATUSES, STATUS_RIGHTS, TECHNICIEN, TECHNICIEN_VISIBLE_STATUSES
 from app.schemas import ProjectCreate, ProjectUpdate
 from app.services import simulation_service, user_store
 
@@ -74,7 +76,7 @@ def list_projects(user: dict = Depends(require_roles(COMMERCIAL, TECHNICIEN, ADM
 
 
 @router.patch("/{project_id}")
-def update_project(project_id: int, payload: ProjectUpdate, user: dict = Depends(current_user)):
+def update_project(project_id: int, payload: ProjectUpdate, request: Request, user: dict = Depends(current_user)):
     role = user["role"]
     if role not in (COMMERCIAL, TECHNICIEN, ADMIN):
         raise HTTPException(403, "Votre profil n'a pas accès à cette fonctionnalité.")
@@ -94,4 +96,21 @@ def update_project(project_id: int, payload: ProjectUpdate, user: dict = Depends
             tech = user_store.get_user(changes["technician_id"])
             if tech is None or tech["role"] != TECHNICIEN or not tech["active"]:
                 raise HTTPException(400, "Technicien introuvable.")
-    return user_store.update_project(project_id, **changes)
+    updated = user_store.update_project(project_id, **changes)
+    if "status" in changes and changes["status"] != project["status"]:
+        user_store.add_audit(
+            "project.status", user, project["reference"],
+            f"{PROJECT_STATUSES[project['status']]} → {PROJECT_STATUSES[changes['status']]} ({project['client_name']})",
+            security.client_ip(request),
+        )
+    return updated
+
+
+@router.delete("/{project_id}")
+def delete_project(project_id: int, request: Request, admin: dict = Depends(require_roles(ADMIN))):
+    project = user_store.get_project(project_id)
+    if project is None:
+        raise HTTPException(404, "Dossier introuvable.")
+    user_store.delete_project(project_id)
+    user_store.add_audit("project.delete", admin, project["reference"], f"Client {project['client_name']}", security.client_ip(request))
+    return {"ok": True}

@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { formatNumber, getJSON } from "./api";
 import { useAuth } from "./auth";
+import { ProfileForms } from "./MySpace";
 import {
   DEFAULT_SETTINGS, PAGES, resetSettings, updateSettings, useSettings, type Accent, type FontSize, type Theme,
 } from "./settings";
@@ -88,7 +89,7 @@ export default function SettingsPage() {
   }, [saved, settings]);
 
   const { role } = useAuth();
-  // L'état du système (serveur, clé IA, données) est réservé à l'administrateur et au technicien.
+  // État du système, préférences des pages du campus et tarif : administrateur et technicien.
   const canSeeStatus = role === "admin" || role === "technicien";
   const checkStatus = useCallback(async () => {
     if (!canSeeStatus) return;
@@ -133,6 +134,13 @@ export default function SettingsPage() {
         </span>
       </div>
 
+      {role === "client" && (
+        <div>
+          <h3 className="mb-3 text-lg font-semibold">Mon compte</h3>
+          <ProfileForms />
+          <h3 className="mb-3 mt-8 text-lg font-semibold">Préférences d'affichage</h3>
+        </div>
+      )}
       <div className="grid gap-6 xl:grid-cols-2">
         <Section icon={Palette} title="Apparence" subtitle="Thème, couleur principale et taille du texte">
           <p className="mb-2 text-xs font-medium text-gray-500">Thème</p>
@@ -167,6 +175,7 @@ export default function SettingsPage() {
           </div>
         </Section>
 
+        {canSeeStatus && (<>
         <Section icon={SlidersHorizontal} title="Préférences" subtitle="Valeurs utilisées à l'ouverture des pages">
           <label className="block text-xs font-medium text-gray-500">Page affichée au démarrage
             <select className={field} value={settings.startPage} onChange={(e) => save({ startPage: e.target.value })}>
@@ -208,6 +217,7 @@ export default function SettingsPage() {
             La page Simulation garde son propre tarif, propre à chaque client.
           </p>
         </Section>
+        </>)}
 
         {canSeeStatus && (
         <Section icon={Server} title="État du système" subtitle="Vérification en direct du serveur, des données et de l'agent IA">

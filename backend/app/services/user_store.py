@@ -63,7 +63,18 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    actor_id INTEGER,
+    actor_name TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL DEFAULT ''
+);
 """
+AUDIT_KEEP = 5000  # nombre d'événements conservés dans le journal
 
 
 def db_path() -> Path:
@@ -166,20 +177,43 @@ def count_admins(active_only: bool = True) -> int:
 
 
 def update_user(user_id: int, **fields) -> dict | None:
-    allowed = {"name", "role", "phone", "company", "active"}
+    allowed = {"name", "email", "role", "phone", "company", "active"}
+    if fields.get("email"):
+        fields["email"] = fields["email"].strip().lower()
     updates = {key: value for key, value in fields.items() if key in allowed and value is not None}
     password = fields.get("password")
     with connect() as conn:
         if updates:
             assignments = ", ".join(f"{key} = ?" for key in updates)
             values = [int(v) if isinstance(v, bool) else (v.strip() if isinstance(v, str) else v) for v in updates.values()]
-            conn.execute(f"UPDATE users SET {assignments} WHERE id = ?", (*values, user_id))
+            try:
+                conn.execute(f"UPDATE users SET {assignments} WHERE id = ?", (*values, user_id))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Un compte existe déjà avec cette adresse e-mail.") from exc
         if password:
             conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hash_password(password), user_id))
-        if password or updates.get("active") is False or "role" in updates:
+        if password or updates.get("active") is False or "role" in updates or "email" in updates:
             # Mot de passe, profil ou statut changé : les sessions ouvertes sont fermées.
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         return public_user(conn.execute(f"SELECT {USER_FIELDS} FROM users WHERE id = ?", (user_id,)).fetchone())
+
+
+def delete_user(user_id: int) -> None:
+    """Suppression définitive : sessions et dossiers du compte supprimés, affectations de technicien retirées."""
+    with connect() as conn:
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+def close_sessions(user_id: int) -> int:
+    with connect() as conn:
+        return conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,)).rowcount
+
+
+def session_counts() -> dict[int, int]:
+    """Nombre de sessions ouvertes par utilisateur (appareils connectés)."""
+    with connect() as conn:
+        rows = conn.execute("SELECT user_id, COUNT(*) FROM sessions WHERE expires_at > ? GROUP BY user_id", (now(),)).fetchall()
+    return {row[0]: row[1] for row in rows}
 
 
 def authenticate(email: str, password: str) -> dict | None:
@@ -297,3 +331,56 @@ def update_project(project_id: int, **fields) -> dict | None:
 def delete_project(project_id: int) -> None:
     with connect() as conn:
         conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+
+# --- Journal d'activité -------------------------------------------------------
+
+def add_audit(action: str, actor: dict | None = None, target: str = "", details: str = "", ip: str = "") -> None:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (created_at, actor_id, actor_name, action, target, details, ip) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (now(), actor["id"] if actor else None, actor["name"] if actor else "", action, target[:200], details[:500], ip[:64]),
+        )
+        conn.execute(
+            "DELETE FROM audit_log WHERE id <= (SELECT id FROM audit_log ORDER BY id DESC LIMIT 1 OFFSET ?)", (AUDIT_KEEP,),
+        )
+
+
+def list_audit(limit: int = 200, action: str | None = None, about: dict | None = None) -> list[dict]:
+    """Événements du journal ; `about` = un utilisateur (ce qu'il a fait ou ce qui le concerne)."""
+    clauses, values = [], []
+    if action:
+        clauses.append("action = ?")
+        values.append(action)
+    if about:
+        clauses.append("(actor_id = ? OR target = ?)")
+        values.extend([about["id"], about["email"]])
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    with connect() as conn:
+        rows = conn.execute(f"SELECT * FROM audit_log{where} ORDER BY id DESC LIMIT ?", (*values, limit)).fetchall()
+    return [dict(row) for row in rows]
+
+
+# --- Premier administrateur ----------------------------------------------------
+
+def ensure_initial_admin(logger=None) -> dict | None:
+    """
+    Au démarrage : s'il n'existe encore aucun administrateur, le crée à partir de
+    ENSA_ADMIN_EMAIL / ENSA_ADMIN_PASSWORD (et ENSA_ADMIN_NAME) lus dans backend/.env.
+    Sans ces variables, rien n'est créé (aucun mot de passe par défaut) et un message l'indique.
+    """
+    if count_admins(active_only=False) > 0:
+        return None
+    email = os.getenv("ENSA_ADMIN_EMAIL", "").strip()
+    password = os.getenv("ENSA_ADMIN_PASSWORD", "")
+    if not email or len(password) < 8:
+        if logger:
+            logger.warning(
+                "Aucun administrateur : renseignez ENSA_ADMIN_EMAIL et ENSA_ADMIN_PASSWORD (8 caractères min.) "
+                "dans backend/.env puis redémarrez, ou lancez backend/scripts/create_user.py."
+            )
+        return None
+    user = create_user(email, os.getenv("ENSA_ADMIN_NAME", "").strip() or "Administrateur", "admin", password)
+    if logger:
+        logger.info("Premier administrateur créé : %s", user["email"])
+    return user

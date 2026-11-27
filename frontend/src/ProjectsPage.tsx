@@ -1,7 +1,7 @@
 // Suivi des dossiers clients : commercial (contact, acceptation), technicien (installation), administrateur (tout).
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Briefcase, Download, Mail, Phone, Search, Wrench } from "lucide-react";
-import { getJSON, patchJSON } from "./api";
+import { Briefcase, Download, Mail, Phone, Search, Trash2, Wrench } from "lucide-react";
+import { deleteJSON, getJSON, patchJSON } from "./api";
 import { useAuth } from "./auth";
 import { StatusBadge } from "./MySpace";
 import { day, downloadProjectDevis, type Project } from "./projects";
@@ -16,8 +16,8 @@ const STATUS_RIGHTS: Record<string, string[]> = {
 const cardClass = "rounded-3xl border border-gray-100 bg-white p-6 shadow-sm";
 const smallInput = "w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-700 outline-none focus:border-blue-500";
 
-function ProjectCard({ project, role, technicians, onChange }: {
-  project: Project; role: string; technicians: { id: number; name: string }[]; onChange: (p: Project) => void;
+function ProjectCard({ project, role, technicians, onChange, onDelete }: {
+  project: Project; role: string; technicians: { id: number; name: string }[]; onChange: (p: Project) => void; onDelete: (id: number) => void;
 }) {
   const [note, setNote] = useState(project.note ?? "");
   const [error, setError] = useState("");
@@ -77,8 +77,17 @@ function ProjectCard({ project, role, technicians, onChange }: {
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
         {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : <span />}
-        <button type="button" onClick={() => downloadProjectDevis(project).catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur."))}
-          className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600"><Download size={13} /> Devis PDF</button>
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={() => downloadProjectDevis(project).catch((e: unknown) => setError(e instanceof Error ? e.message : "Erreur."))}
+            className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600"><Download size={13} /> Devis PDF</button>
+          {role === "admin" && (
+            <button type="button" onClick={async () => {
+              if (!window.confirm(`Supprimer définitivement le dossier ${project.reference} de ${project.client_name} ?`)) return;
+              try { await deleteJSON(`/api/projects/${project.id}`); onDelete(project.id); }
+              catch (e: unknown) { setError(e instanceof Error ? e.message : "Erreur."); }
+            }} className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-rose-600"><Trash2 size={13} /> Supprimer</button>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -145,6 +154,7 @@ export default function ProjectsPage() {
         <div className="space-y-4">
           {shown.map((p) => (
             <ProjectCard key={p.id} project={p} role={role} technicians={technicians}
+              onDelete={(id) => setProjects((list) => (list ?? []).filter((x) => x.id !== id))}
               onChange={(updated) => setProjects((list) => (list ?? []).map((x) => (x.id === updated.id ? updated : x)).filter((x) => role !== "technicien" || visibleStatuses.includes(x.status)))} />
           ))}
         </div>

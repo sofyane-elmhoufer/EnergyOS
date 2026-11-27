@@ -15,7 +15,7 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${s.className}`}>{s.label}</span>;
 }
 
-function Projects({ onSimulate }: { onSimulate: () => void }) {
+export function MyQuotes({ onSimulate }: { onSimulate: () => void }) {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [error, setError] = useState("");
 
@@ -124,17 +124,6 @@ export function ProfileForms() {
         </div>
       </form>
       {message && <p role={message.ok ? "status" : "alert"} className={`xl:col-span-2 text-sm ${message.ok ? "text-emerald-700" : "text-red-600"}`}>{message.text}</p>}
-    </div>
-  );
-}
-
-export default function MySpace({ onSimulate }: { onSimulate: () => void }) {
-  const { user } = useAuth();
-  return (
-    <div className="space-y-6">
-      <p className="text-sm text-gray-500">Bonjour {user?.name}. Retrouvez vos devis et suivez l'avancement de votre projet : notre équipe commerciale vous contacte après chaque nouvelle simulation.</p>
-      <Projects onSimulate={onSimulate} />
-      <ProfileForms />
     </div>
   );
 }
