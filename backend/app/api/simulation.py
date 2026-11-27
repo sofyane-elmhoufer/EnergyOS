@@ -1,7 +1,14 @@
-from fastapi import APIRouter, Query
+import base64
+import binascii
 
-from app.schemas import SimulationRequest
-from app.services import simulation_service
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+
+from app.schemas import SendDevisRequest, SimulationRequest
+from app.security import email_rate_limit
+from app.services import email_service, simulation_service
+
+MAX_PDF_BYTES = 300_000
 
 # Espace Client : simulation d'économies pour un bâtiment quelconque.
 # Aucune donnée n'est enregistrée côté serveur : le POST /estimate ne fait qu'un calcul
@@ -38,3 +45,26 @@ def simulation_estimate_legacy(
         lamp_power_w=lamp_power_w, hours_per_day=hours_per_day,
         days_per_month=days_per_month, price_per_kwh=price_per_kwh,
     )
+
+
+@router.post("/send-devis")
+async def send_devis(payload: SendDevisRequest, request: Request):
+    """Envoie le devis PDF au client. Rien n'est enregistré côté serveur."""
+    if not email_service.is_configured():
+        raise HTTPException(503, email_service.NOT_CONFIGURED)
+    try:
+        pdf_bytes = base64.b64decode(payload.pdf_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(422, "Devis PDF invalide.") from exc
+    if not pdf_bytes.startswith(b"%PDF-") or len(pdf_bytes) > MAX_PDF_BYTES:
+        raise HTTPException(422, "Devis PDF invalide.")
+    # Compté seulement pour les demandes valides : une faute de frappe ne consomme pas d'envoi.
+    email_rate_limit(request)
+
+    estimate = simulation_service.estimate(payload.simulation)
+    email = payload.email.strip()
+    name = " ".join(payload.name.split())
+    message = email_service.build_message(email, name, payload.reference, estimate, pdf_bytes)
+    # Envoi SMTP bloquant (jusqu'à 20 s) : hors de la boucle asynchrone.
+    await run_in_threadpool(email_service.send_message, message)
+    return {"sent": True, "email": email}

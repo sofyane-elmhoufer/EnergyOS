@@ -37,9 +37,12 @@ logs/
 .DS_Store
 Thumbs.db
 .idea/
-.claude/
 .vscode/*
 !.vscode/extensions.json
 
 # Etat local de selection du dataset (original et archive conserves)
 backend/data/metadata/active.json
+
+# Base locale des comptes et dossiers clients (jamais versionnee)
+backend/data/app.db*
+backend/data/comptes_demo.txt

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  Bot, Calculator, ChevronDown, Download, FileText, Info, Mail, Phone, Plus, Trash2, TriangleAlert,
+  Bot, Calculator, ChevronDown, Download, FileText, Info, Mail, MailCheck, Phone, Plus, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { getJSON, postJSON } from "./api";
+import { useAuth } from "./auth";
 import ChatPanel from "./ChatPanel";
-import { downloadDevis } from "./devisPdf";
+import { devisAsBase64, downloadDevis } from "./devisPdf";
 import {
   COMPANY, fmt, formatPayback, newDevisReference,
   type ClientInfo, type Estimate, type SimulationOptions, type SimulationRequest,
@@ -29,6 +30,9 @@ type FormState = {
 const inputClass = "mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700 outline-none focus:border-blue-500";
 const smallInput = "w-full rounded-lg border border-gray-200 bg-white px-2 py-2 text-sm text-gray-700 outline-none focus:border-blue-500";
 const labelClass = "block text-xs font-medium text-gray-500";
+type MailStatus = { state: "idle" | "sending" | "sent" | "error"; message: string };
+type SaveStatus = { state: "idle" | "saved" | "error" | "guest"; message: string };
+
 const cardClass = "rounded-3xl border border-gray-100 bg-white p-6 shadow-sm";
 
 const WARNINGS: Record<string, string> = {
@@ -45,9 +49,10 @@ const num = (value: string) => {
   return cleaned ? Number(cleaned) : undefined;
 };
 
-function Results({ estimate, request, client, reference }: {
-  estimate: Estimate; request: SimulationRequest; client: ClientInfo; reference: string;
+function Results({ estimate, request, client, reference, mail, saved }: {
+  estimate: Estimate; request: SimulationRequest; client: ClientInfo; reference: string; mail: MailStatus; saved: SaveStatus;
 }) {
+  const { role } = useAuth();
   const [pdfError, setPdfError] = useState("");
   const [generating, setGenerating] = useState(false);
   const { monthly, yearly, inputs, assumptions, investment, currency } = estimate;
@@ -194,6 +199,11 @@ function Results({ estimate, request, client, reference }: {
       <section className={cardClass}>
         <h3 className="flex items-center gap-2 font-semibold"><Bot size={18} className="text-blue-600" /> Votre conseiller énergétique IA</h3>
         <p className="mb-4 text-xs text-gray-400">Posez vos questions sur cette simulation : l'IA s'appuie sur vos chiffres pour vous conseiller.</p>
+        {role === "guest" ? (
+          <p className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-600">
+            Créez un compte client gratuit (bouton « Se connecter » en haut) pour poser vos questions au conseiller IA sur cette simulation.
+          </p>
+        ) : (
         <ChatPanel
           endpoint="advice"
           extraBody={{ simulation: request }}
@@ -205,6 +215,7 @@ function Results({ estimate, request, client, reference }: {
             "Quels horaires programmer pour mes appareils ?",
           ]}
         />
+        )}
       </section>
 
       <section className="rounded-3xl bg-blue-600 p-7 text-white shadow-sm">
@@ -232,12 +243,24 @@ function Results({ estimate, request, client, reference }: {
           </div>
         </div>
         {pdfError && <p role="alert" className="mt-4 text-sm text-amber-200">{pdfError}</p>}
+        {saved.state !== "idle" && (
+          <p role="status" className={`mt-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm ${saved.state === "error" ? "bg-amber-100 text-amber-900" : "bg-white/15 text-white"}`}>
+            <FileText size={16} className="shrink-0" /> {saved.message}
+          </p>
+        )}
+        {mail.state !== "idle" && (
+          <p role="status" className={`mt-4 flex items-center gap-2 rounded-xl px-4 py-3 text-sm ${mail.state === "error" ? "bg-amber-100 text-amber-900" : "bg-white/15 text-white"}`}>
+            {mail.state === "sent" ? <MailCheck size={16} className="shrink-0" /> : <Mail size={16} className="shrink-0" />}
+            {mail.message}
+          </p>
+        )}
       </section>
     </div>
   );
 }
 
 export default function ClientSpace() {
+  const { user, role } = useAuth();
   const [options, setOptions] = useState<SimulationOptions | null>(null);
   const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState<FormState>({
@@ -245,11 +268,16 @@ export default function ClientSpace() {
     days_per_month: "", price_per_kwh: "", module_price: "", installation_price: "",
   });
   const [rows, setRows] = useState<ApplianceRow[]>(() => [newRow("lighting")]);
-  const [client, setClient] = useState<ClientInfo>({ name: "", company: "", email: "", phone: "" });
+  // Connecté : coordonnées pré-remplies depuis le profil.
+  const [client, setClient] = useState<ClientInfo>(() => ({
+    name: user?.name ?? "", company: user?.company ?? "", email: user?.email ?? "", phone: user?.phone ?? "",
+  }));
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [result, setResult] = useState<{ estimate: Estimate; request: SimulationRequest; reference: string; client: ClientInfo } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [mail, setMail] = useState<MailStatus>({ state: "idle", message: "" });
+  const [saved, setSaved] = useState<SaveStatus>({ state: "idle", message: "" });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -275,6 +303,21 @@ export default function ClientSpace() {
     update("building_type", id);
     const b = options?.building_types.find((item) => item.id === id);
     update("tariff_mode", b?.tariff === "residential" ? "tiered" : "flat");
+  };
+
+  // Le client a saisi son e-mail : le devis lui est envoyé automatiquement après la simulation.
+  const sendDevisByEmail = async (estimate: Estimate, request: SimulationRequest, info: ClientInfo, reference: string) => {
+    setMail({ state: "sending", message: `Envoi du devis à ${info.email}…` });
+    try {
+      const pdf_base64 = await devisAsBase64(estimate, info, reference);
+      await postJSON<{ sent: boolean }>("/api/simulation/send-devis", {
+        email: info.email, name: info.name, reference, pdf_base64, simulation: request,
+      });
+      setMail({ state: "sent", message: `Devis envoyé à ${info.email}. Pensez à vérifier vos courriers indésirables.` });
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : "Le serveur ne répond pas.";
+      setMail({ state: "error", message: `${reason} Vous pouvez télécharger le devis avec le bouton ci-dessus.` });
+    }
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -306,9 +349,24 @@ export default function ClientSpace() {
     setSubmitting(true);
     try {
       const estimate = await postJSON<Estimate>("/api/simulation/estimate", request);
-      setResult({ estimate, request, reference: newDevisReference(), client: { ...client } });
+      const reference = newDevisReference();
+      const info = { ...client, email: client.email.trim() };
+      setResult({ estimate, request, reference, client: info });
+      if (info.email) void sendDevisByEmail(estimate, request, info, reference);
+      else setMail({ state: "idle", message: "" });
+      if (role === "client") {
+        // Client connecté : la simulation est enregistrée dans « Mon espace » et transmise à l'équipe commerciale.
+        postJSON("/api/projects/mine", { reference, simulation: request })
+          .then(() => setSaved({ state: "saved", message: "Simulation enregistrée dans « Mon espace » : notre équipe commerciale va vous contacter." }))
+          .catch((err: unknown) => setSaved({ state: "error", message: err instanceof Error ? err.message : "Enregistrement impossible." }));
+      } else if (role === "guest") {
+        setSaved({ state: "guest", message: "Créez un compte client (bouton « Se connecter ») pour enregistrer vos simulations et suivre votre dossier." });
+      } else {
+        setSaved({ state: "idle", message: "" });
+      }
     } catch (err: unknown) {
       setResult(null);
+      setMail({ state: "idle", message: "" });
       setError(err instanceof Error ? err.message : "Erreur inconnue.");
     } finally {
       setSubmitting(false);
@@ -483,7 +541,7 @@ export default function ClientSpace() {
                 <input className={inputClass} type="text" autoComplete="organization" maxLength={80}
                   value={client.company} onChange={(e) => updateClient("company", e.target.value)} />
               </label>
-              <label className={labelClass}>E-mail
+              <label className={labelClass}>E-mail (pour recevoir le devis)
                 <input className={inputClass} type="email" autoComplete="email" maxLength={80}
                   value={client.email} onChange={(e) => updateClient("email", e.target.value)} />
               </label>
@@ -493,7 +551,8 @@ export default function ClientSpace() {
               </label>
             </div>
             <p className="text-xs text-gray-400">
-              Vos coordonnées servent uniquement à personnaliser le devis PDF : elles restent dans votre navigateur et ne sont jamais envoyées au serveur.
+              Si vous indiquez votre e-mail, le devis PDF vous est envoyé automatiquement à la fin de la simulation.
+              Vos coordonnées servent uniquement à personnaliser et à vous envoyer ce devis : elles ne sont pas enregistrées.
             </p>
           </div>
         )}
@@ -507,7 +566,7 @@ export default function ClientSpace() {
         </div>
       </form>
 
-      {result && <Results key={result.reference} estimate={result.estimate} request={result.request} client={result.client} reference={result.reference} />}
+      {result && <Results key={result.reference} estimate={result.estimate} request={result.request} client={result.client} reference={result.reference} mail={mail} saved={saved} />}
     </div>
   );
 }

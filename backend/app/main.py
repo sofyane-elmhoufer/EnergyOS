@@ -18,6 +18,12 @@ from app.api.agent import router as agent_router  # noqa: E402
 from app.api.analytics import router as analytics_router  # noqa: E402
 from app.api.datasets import router as datasets_router  # noqa: E402
 from app.api.simulation import router as simulation_router  # noqa: E402
+from app.api.auth import router as auth_router  # noqa: E402
+from app.api.projects import router as projects_router  # noqa: E402
+from app.api.users import router as users_router  # noqa: E402
+from app.auth import require_roles  # noqa: E402
+from app.roles import ADMIN, TECHNICIEN  # noqa: E402
+from fastapi import Depends  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("ensa")
@@ -35,14 +41,22 @@ app.include_router(analytics_router)
 app.include_router(datasets_router)
 app.include_router(agent_router)
 app.include_router(simulation_router)
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(projects_router)
+
+# Premier administrateur créé automatiquement depuis backend/.env s'il n'en existe aucun.
+from app.services.user_store import ensure_initial_admin  # noqa: E402
+
+ensure_initial_admin(logger)
 
 # Ordre : le dernier ajouté s'exécute en premier.
 app.middleware("http")(security.security_middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=security.ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
     allow_credentials=False,
 )
 # Refuse les requêtes dont l'en-tête Host n'est pas attendu (protection DNS rebinding).
@@ -80,7 +94,7 @@ def home():
     }
 
 
-@app.get("/api/status")
+@app.get("/api/status", dependencies=[Depends(require_roles(ADMIN, TECHNICIEN))])
 def status():
     """État du système pour la page Settings. N'expose jamais la clé API, seulement sa présence."""
     import os

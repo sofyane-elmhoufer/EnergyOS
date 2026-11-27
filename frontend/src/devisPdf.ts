@@ -5,8 +5,8 @@ const GREEN: [number, number, number] = [5, 150, 105];
 const DARK: [number, number, number] = [29, 29, 31];
 const GRAY: [number, number, number] = [107, 114, 128];
 
-/** Génère le devis PDF dans le navigateur et lance le téléchargement. */
-export async function downloadDevis(estimate: Estimate, client: ClientInfo, reference: string) {
+/** Construit le devis PDF dans le navigateur. */
+async function buildDevis(estimate: Estimate, client: ClientInfo, reference: string) {
   // Chargement à la demande : jsPDF n'alourdit pas le reste de l'application.
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import("jspdf"),
@@ -189,5 +189,16 @@ export async function downloadDevis(estimate: Estimate, client: ClientInfo, refe
     doc.text(`${page}/${pages}`, right, pageHeight - 7, { align: "right" });
   }
 
-  doc.save(`Devis_${reference}.pdf`);
+  return doc;
+}
+
+/** Génère le devis et lance le téléchargement. */
+export async function downloadDevis(estimate: Estimate, client: ClientInfo, reference: string) {
+  (await buildDevis(estimate, client, reference)).save(`Devis_${reference}.pdf`);
+}
+
+/** Génère le devis encodé en base64, pour l'envoi par e-mail. */
+export async function devisAsBase64(estimate: Estimate, client: ClientInfo, reference: string) {
+  const doc = await buildDevis(estimate, client, reference);
+  return doc.output("datauristring").split(",")[1];
 }

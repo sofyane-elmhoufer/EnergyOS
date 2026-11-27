@@ -2,7 +2,10 @@
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.auth import require_roles
+from app.roles import ADMIN, TECHNICIEN
 
 from app.services import insights_service
 from app.services.energy_service import (
@@ -65,7 +68,7 @@ def get_filtered_dataset(
     return filtered
 
 
-@router.get("/filters")
+@router.get("/filters", dependencies=[Depends(require_roles(TECHNICIEN, ADMIN))])
 def available_filters():
     df = load_active_dataset()
     return get_available_filters(df)
@@ -103,7 +106,7 @@ def daily_consumption(
     }
 
 
-@router.get("/alerts")
+@router.get("/alerts", dependencies=[Depends(require_roles(TECHNICIEN, ADMIN))])
 def alerts(
     building: str | None = Query(None, max_length=100),
     floor: str | None = Query(None, max_length=100),
@@ -121,7 +124,7 @@ def alerts(
     )
 
 
-@router.get("/forecast")
+@router.get("/forecast", dependencies=[Depends(require_roles(TECHNICIEN, ADMIN))])
 def forecast(
     building: str | None = Query(None, max_length=100),
     floor: str | None = Query(None, max_length=100),
