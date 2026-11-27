@@ -43,3 +43,7 @@ Thumbs.db
 
 # Etat local de selection du dataset (original et archive conserves)
 backend/data/metadata/active.json
+
+# Base locale des comptes et dossiers clients (jamais versionnee)
+backend/data/app.db*
+backend/data/comptes_demo.txt

@@ -23,6 +23,10 @@ export default defineConfig({
       "^/api/agent/(chat|chat-file|advice)$": backend,
       // Page Settings : état du système
       "^/api/status$": backend,
+      // Comptes, profils et dossiers clients
+      "^/api/auth/(login|register|logout|me|password|roles)$": backend,
+      "^/api/users(/technicians|/clients|/audit|/\\d+|/\\d+/(logout|overview))?(\\?.*)?$": backend,
+      "^/api/projects(/mine(/\\d+)?|/\\d+)?$": backend,
     },
   },
 });

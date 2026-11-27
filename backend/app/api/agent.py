@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth import current_user, require_roles
+from app.roles import ADMIN, TECHNICIEN
 from app.schemas import SimulationRequest
 from app.security import agent_rate_limit
 from app.services import simulation_service
@@ -32,7 +34,9 @@ VISION_MODEL = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-
 router = APIRouter(
     prefix="/api/agent",
     tags=["AI Agent"],
-    dependencies=[Depends(agent_rate_limit)],  # limite de questions / minute / IP
+    # Utilisateurs connectés uniquement (protège le quota Groq) + limite de questions / minute / IP.
+    # Agent sur les données du campus : technicien et administrateur ; conseiller de simulation : tout compte.
+    dependencies=[Depends(current_user), Depends(agent_rate_limit)],
 )
 
 JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
@@ -491,7 +495,7 @@ def unsupported_numbers(reply: str, sources: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 # `def` (et non `async def`) : FastAPI l'exécute dans un thread, donc il ne bloque pas les autres pages.
-@router.post("/chat")
+@router.post("/chat", dependencies=[Depends(require_roles(TECHNICIEN, ADMIN))])
 def ask_agent(request: ChatRequest):
     df, key = get_active_df()
     return ask_dataframe(request.question, df, key, request.history)
@@ -622,7 +626,7 @@ def _handle_file(question: str, history: list[HistoryItem], filename: str, conte
     return {"reply": resp.choices[0].message.content, "chart": None}
 
 
-@router.post("/chat-file")
+@router.post("/chat-file", dependencies=[Depends(require_roles(TECHNICIEN, ADMIN))])
 async def ask_with_file(
     question: str = Form(..., min_length=1, max_length=MAX_QUESTION_CHARS),
     history: str = Form("[]", max_length=50_000),
